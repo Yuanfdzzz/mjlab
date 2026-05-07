@@ -1,7 +1,9 @@
 """Unitree G1 velocity environment configurations."""
 
 from mjlab.asset_zoo.robots import (
+  G1_12DOF_ACTION_SCALE,
   G1_ACTION_SCALE,
+  get_g1_12dof_robot_cfg,
   get_g1_robot_cfg,
 )
 from mjlab.envs import ManagerBasedRlEnvCfg
@@ -20,6 +22,109 @@ from mjlab.sensor import (
 from mjlab.tasks.velocity import mdp
 from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 from mjlab.tasks.velocity.velocity_env_cfg import make_velocity_env_cfg
+from mjlab.terrains.config import (
+  TerrainGeneratorCfg,
+  box_random_grid,
+  flat,
+  narrow_beams,
+  nested_rings,
+  open_stairs,
+  random_stairs,
+  stepping_stones,
+)
+
+
+def _g1_discontinuous_terrains_cfg() -> TerrainGeneratorCfg:
+  """Terrain set for humanoid perceptive locomotion on discontinuous footholds."""
+  return TerrainGeneratorCfg(
+    size=(8.0, 8.0),
+    border_width=20.0,
+    num_rows=10,
+    num_cols=8,
+    curriculum=True,
+    sub_terrains={
+      # Keep some easy cells so early curriculum has recoverable samples.
+      "flat": flat(proportion=0.10),
+      "easy_open_stairs": open_stairs(
+        proportion=0.15,
+        step_height_range=(0.04, 0.10),
+        step_width_range=(0.45, 0.80),
+      ),
+      "random_stairs": random_stairs(
+        proportion=0.15,
+        step_width=0.55,
+        step_height_range=(0.05, 0.18),
+      ),
+      "stepping_stones": stepping_stones(
+        proportion=0.25,
+        stone_size_range=(0.35, 0.70),
+        stone_distance_range=(0.12, 0.40),
+        stone_height=0.12,
+        stone_height_variation=0.12,
+        stone_size_variation=0.18,
+        displacement_range=0.12,
+      ),
+      "narrow_beams": narrow_beams(
+        proportion=0.10,
+        num_beams=10,
+        beam_width_range=(0.18, 0.45),
+        beam_height=0.16,
+        spacing=0.65,
+      ),
+      "nested_rings": nested_rings(
+        proportion=0.10,
+        num_rings=6,
+        ring_width_range=(0.25, 0.55),
+        gap_range=(0.08, 0.28),
+        height_range=(0.08, 0.28),
+      ),
+      "box_random_grid": box_random_grid(
+        proportion=0.15,
+        grid_width=0.35,
+        grid_height_range=(0.02, 0.22),
+      ),
+    },
+    add_lights=True,
+  )
+
+
+def _g1_easy_discontinuous_terrains_cfg() -> TerrainGeneratorCfg:
+  """Intro curriculum with stairs and small gaps before harder footholds."""
+  return TerrainGeneratorCfg(
+    size=(8.0, 8.0),
+    border_width=20.0,
+    num_rows=8,
+    num_cols=5,
+    curriculum=True,
+    sub_terrains={
+      "flat": flat(proportion=0.25),
+      "low_open_stairs": open_stairs(
+        proportion=0.30,
+        step_height_range=(0.02, 0.08),
+        step_width_range=(0.65, 0.95),
+      ),
+      "low_random_stairs": random_stairs(
+        proportion=0.20,
+        step_width=0.75,
+        step_height_range=(0.02, 0.10),
+      ),
+      "small_gap_platforms": stepping_stones(
+        proportion=0.20,
+        stone_size_range=(0.65, 0.95),
+        stone_distance_range=(0.02, 0.14),
+        stone_height=0.06,
+        stone_height_variation=0.04,
+        stone_size_variation=0.06,
+        displacement_range=0.03,
+      ),
+      "low_box_grid": box_random_grid(
+        proportion=0.05,
+        grid_width=0.55,
+        grid_height_range=(0.01, 0.08),
+      ),
+    },
+    add_lights=True,
+  )
 
 
 def unitree_g1_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
@@ -181,6 +286,164 @@ def unitree_g1_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
         cfg.scene.terrain.terrain_generator.num_cols = 5
         cfg.scene.terrain.terrain_generator.num_rows = 5
         cfg.scene.terrain.terrain_generator.border_width = 10.0
+
+  return cfg
+
+
+def unitree_g1_discontinuous_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+  """Create Unitree G1 discontinuous-terrain perceptive locomotion config."""
+  cfg = unitree_g1_rough_env_cfg(play=play)
+
+  assert cfg.scene.terrain is not None
+  cfg.scene.terrain.terrain_type = "generator"
+  cfg.scene.terrain.terrain_generator = _g1_discontinuous_terrains_cfg()
+  cfg.scene.terrain.max_init_terrain_level = 2
+
+  for sensor in cfg.scene.sensors or ():
+    if sensor.name == "terrain_scan":
+      assert isinstance(sensor, RayCastSensorCfg)
+      sensor.pattern.size = (2.2, 1.4)
+      sensor.pattern.resolution = 0.10
+      sensor.max_distance = 6.0
+      cfg.observations["actor"].terms["height_scan"].scale = 1 / sensor.max_distance
+      cfg.observations["critic"].terms["height_scan"].scale = 1 / sensor.max_distance
+
+  # Discontinuous footholds need slower early commands than rough slopes/stairs.
+  twist_cmd = cfg.commands["twist"]
+  assert isinstance(twist_cmd, UniformVelocityCommandCfg)
+  twist_cmd.ranges.lin_vel_x = (-0.4, 1.0)
+  twist_cmd.ranges.lin_vel_y = (-0.3, 0.3)
+  twist_cmd.ranges.ang_vel_z = (-0.4, 0.4)
+  if "command_vel" in cfg.curriculum:
+    cfg.curriculum["command_vel"].params["velocity_stages"] = [
+      {"step": 0, "lin_vel_x": (-0.4, 1.0), "ang_vel_z": (-0.4, 0.4)},
+      {"step": 5000 * 24, "lin_vel_x": (-0.8, 1.5), "ang_vel_z": (-0.5, 0.5)},
+      {"step": 10000 * 24, "lin_vel_x": (-1.2, 2.0), "ang_vel_z": (-0.7, 0.7)},
+    ]
+
+  cfg.rewards["foot_clearance"].params["target_height"] = 0.16
+  cfg.rewards["foot_swing_height"].params["target_height"] = 0.16
+  cfg.rewards["foot_clearance"].weight = -1.0
+  cfg.rewards["foot_swing_height"].weight = -0.2
+  cfg.rewards["foot_slip"].weight = -0.2
+  cfg.rewards["soft_landing"].weight = -2e-5
+
+  if play:
+    cfg.curriculum = {}
+    if cfg.scene.terrain.terrain_generator is not None:
+      cfg.scene.terrain.terrain_generator.curriculum = False
+      cfg.scene.terrain.terrain_generator.num_cols = 4
+      cfg.scene.terrain.terrain_generator.num_rows = 4
+      cfg.scene.terrain.terrain_generator.border_width = 10.0
+
+  return cfg
+
+
+def unitree_g1_easy_discontinuous_env_cfg(
+  play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """Create Unitree G1 easy discontinuous-terrain walking config."""
+  cfg = unitree_g1_discontinuous_env_cfg(play=play)
+
+  assert cfg.scene.terrain is not None
+  cfg.scene.terrain.terrain_generator = _g1_easy_discontinuous_terrains_cfg()
+  cfg.scene.terrain.max_init_terrain_level = 1
+
+  twist_cmd = cfg.commands["twist"]
+  assert isinstance(twist_cmd, UniformVelocityCommandCfg)
+  twist_cmd.ranges.lin_vel_x = (-0.2, 0.8)
+  twist_cmd.ranges.lin_vel_y = (-0.2, 0.2)
+  twist_cmd.ranges.ang_vel_z = (-0.25, 0.25)
+  if "command_vel" in cfg.curriculum:
+    cfg.curriculum["command_vel"].params["velocity_stages"] = [
+      {"step": 0, "lin_vel_x": (-0.2, 0.8), "ang_vel_z": (-0.25, 0.25)},
+      {"step": 5000 * 24, "lin_vel_x": (-0.4, 1.0), "ang_vel_z": (-0.4, 0.4)},
+      {"step": 10000 * 24, "lin_vel_x": (-0.8, 1.5), "ang_vel_z": (-0.5, 0.5)},
+    ]
+
+  cfg.rewards["foot_clearance"].params["target_height"] = 0.10
+  cfg.rewards["foot_swing_height"].params["target_height"] = 0.10
+
+  if play and cfg.scene.terrain.terrain_generator is not None:
+    cfg.scene.terrain.terrain_generator.num_cols = 3
+    cfg.scene.terrain.terrain_generator.num_rows = 3
+
+  return cfg
+
+
+def unitree_g1_12dof_discontinuous_env_cfg(
+  play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """Create Unitree G1 12DoF discontinuous-terrain perceptive locomotion config."""
+  cfg = unitree_g1_discontinuous_env_cfg(play=play)
+  cfg.scene.entities = {"robot": get_g1_12dof_robot_cfg()}
+
+  joint_pos_action = cfg.actions["joint_pos"]
+  assert isinstance(joint_pos_action, JointPositionActionCfg)
+  joint_pos_action.scale = G1_12DOF_ACTION_SCALE
+
+  cfg.viewer.body_name = "pelvis"
+  cfg.events["base_com"].params["asset_cfg"].body_names = ("pelvis",)
+  cfg.events["foot_friction"].params["asset_cfg"].geom_names = None
+  cfg.rewards["upright"].params["asset_cfg"].body_names = ("pelvis",)
+  cfg.rewards["body_ang_vel"].params["asset_cfg"].body_names = ("pelvis",)
+
+  # The 12DoF XML only exposes the leg joints; keep posture priors focused there.
+  cfg.rewards["pose"].params["std_standing"] = {".*": 0.05}
+  cfg.rewards["pose"].params["std_walking"] = {
+    r".*hip_pitch.*": 0.30,
+    r".*hip_roll.*": 0.15,
+    r".*hip_yaw.*": 0.15,
+    r".*knee.*": 0.35,
+    r".*ankle_pitch.*": 0.25,
+    r".*ankle_roll.*": 0.10,
+  }
+  cfg.rewards["pose"].params["std_running"] = {
+    r".*hip_pitch.*": 0.50,
+    r".*hip_roll.*": 0.20,
+    r".*hip_yaw.*": 0.20,
+    r".*knee.*": 0.60,
+    r".*ankle_pitch.*": 0.35,
+    r".*ankle_roll.*": 0.15,
+  }
+
+  return cfg
+
+
+def unitree_g1_12dof_easy_discontinuous_env_cfg(
+  play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """Create Unitree G1 12DoF easy discontinuous-terrain walking config."""
+  cfg = unitree_g1_easy_discontinuous_env_cfg(play=play)
+  cfg.scene.entities = {"robot": get_g1_12dof_robot_cfg()}
+
+  joint_pos_action = cfg.actions["joint_pos"]
+  assert isinstance(joint_pos_action, JointPositionActionCfg)
+  joint_pos_action.scale = G1_12DOF_ACTION_SCALE
+
+  cfg.viewer.body_name = "pelvis"
+  cfg.events["base_com"].params["asset_cfg"].body_names = ("pelvis",)
+  cfg.events["foot_friction"].params["asset_cfg"].geom_names = None
+  cfg.rewards["upright"].params["asset_cfg"].body_names = ("pelvis",)
+  cfg.rewards["body_ang_vel"].params["asset_cfg"].body_names = ("pelvis",)
+
+  cfg.rewards["pose"].params["std_standing"] = {".*": 0.05}
+  cfg.rewards["pose"].params["std_walking"] = {
+    r".*hip_pitch.*": 0.30,
+    r".*hip_roll.*": 0.15,
+    r".*hip_yaw.*": 0.15,
+    r".*knee.*": 0.35,
+    r".*ankle_pitch.*": 0.25,
+    r".*ankle_roll.*": 0.10,
+  }
+  cfg.rewards["pose"].params["std_running"] = {
+    r".*hip_pitch.*": 0.50,
+    r".*hip_roll.*": 0.20,
+    r".*hip_yaw.*": 0.20,
+    r".*knee.*": 0.60,
+    r".*ankle_pitch.*": 0.35,
+    r".*ankle_roll.*": 0.15,
+  }
 
   return cfg
 

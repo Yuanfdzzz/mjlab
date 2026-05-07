@@ -11,6 +11,7 @@ motions/
 *_rerun*
 artifacts/
 .venv/
+.wheelhouse/
 render_robots.py
 benchmark_results/
 

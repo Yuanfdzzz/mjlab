@@ -2,6 +2,10 @@ from mjlab.tasks.registry import register_mjlab_task
 from mjlab.tasks.velocity.rl import VelocityOnPolicyRunner
 
 from .env_cfgs import (
+  unitree_g1_12dof_discontinuous_env_cfg,
+  unitree_g1_12dof_easy_discontinuous_env_cfg,
+  unitree_g1_discontinuous_env_cfg,
+  unitree_g1_easy_discontinuous_env_cfg,
   unitree_g1_flat_env_cfg,
   unitree_g1_rough_env_cfg,
 )
@@ -11,6 +15,38 @@ register_mjlab_task(
   task_id="Mjlab-Velocity-Rough-Unitree-G1",
   env_cfg=unitree_g1_rough_env_cfg(),
   play_env_cfg=unitree_g1_rough_env_cfg(play=True),
+  rl_cfg=unitree_g1_ppo_runner_cfg(),
+  runner_cls=VelocityOnPolicyRunner,
+)
+
+register_mjlab_task(
+  task_id="Mjlab-Velocity-Discontinuous-Unitree-G1",
+  env_cfg=unitree_g1_discontinuous_env_cfg(),
+  play_env_cfg=unitree_g1_discontinuous_env_cfg(play=True),
+  rl_cfg=unitree_g1_ppo_runner_cfg(),
+  runner_cls=VelocityOnPolicyRunner,
+)
+
+register_mjlab_task(
+  task_id="Mjlab-Velocity-EasyDiscontinuous-Unitree-G1",
+  env_cfg=unitree_g1_easy_discontinuous_env_cfg(),
+  play_env_cfg=unitree_g1_easy_discontinuous_env_cfg(play=True),
+  rl_cfg=unitree_g1_ppo_runner_cfg(),
+  runner_cls=VelocityOnPolicyRunner,
+)
+
+register_mjlab_task(
+  task_id="Mjlab-Velocity-EasyDiscontinuous-Unitree-G1-12Dof",
+  env_cfg=unitree_g1_12dof_easy_discontinuous_env_cfg(),
+  play_env_cfg=unitree_g1_12dof_easy_discontinuous_env_cfg(play=True),
+  rl_cfg=unitree_g1_ppo_runner_cfg(),
+  runner_cls=VelocityOnPolicyRunner,
+)
+
+register_mjlab_task(
+  task_id="Mjlab-Velocity-Discontinuous-Unitree-G1-12Dof",
+  env_cfg=unitree_g1_12dof_discontinuous_env_cfg(),
+  play_env_cfg=unitree_g1_12dof_discontinuous_env_cfg(play=True),
   rl_cfg=unitree_g1_ppo_runner_cfg(),
   runner_cls=VelocityOnPolicyRunner,
 )

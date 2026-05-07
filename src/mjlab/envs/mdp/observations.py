@@ -142,5 +142,11 @@ def height_scan(
   hit_z = data.hit_pos_w[..., 2].view(B, F, N)  # [B, F, N]
   heights = (frame_z - hit_z - offset).view(B, F * N)
 
-  miss_mask = data.distances < 0
+  heights = torch.nan_to_num(
+    heights,
+    nan=miss_value,
+    posinf=miss_value,
+    neginf=-miss_value,
+  )
+  miss_mask = (data.distances < 0) | ~torch.isfinite(data.distances)
   return torch.where(miss_mask, torch.full_like(heights, miss_value), heights)

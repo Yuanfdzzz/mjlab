@@ -11,6 +11,8 @@ from mjlab.envs import mdp as envs_mdp
 from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.managers.event_manager import EventTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
+from mjlab.managers.scene_entity_config import SceneEntityCfg
+from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.sensor import (
   ContactMatch,
   ContactSensorCfg,
@@ -26,6 +28,7 @@ from mjlab.terrains.config import (
   TerrainGeneratorCfg,
   box_random_grid,
   flat,
+  hf_pyramid_slope,
   narrow_beams,
   nested_rings,
   open_stairs,
@@ -121,6 +124,36 @@ def _g1_easy_discontinuous_terrains_cfg() -> TerrainGeneratorCfg:
         proportion=0.05,
         grid_width=0.55,
         grid_height_range=(0.01, 0.08),
+      ),
+    },
+    add_lights=True,
+  )
+
+
+def _g1_12dof_gait_terrains_cfg() -> TerrainGeneratorCfg:
+  """Early gait curriculum for the leg-only G1 model.
+
+  The 12DoF lower-body policy needs to learn forward steps before it can survive
+  foothold gaps. Keep the first retraining stage dominated by flat ground and
+  gentle slopes, with low stairs only as a mild foot-clearance signal.
+  """
+  return TerrainGeneratorCfg(
+    size=(8.0, 8.0),
+    border_width=20.0,
+    num_rows=6,
+    num_cols=3,
+    curriculum=True,
+    sub_terrains={
+      "flat": flat(proportion=0.50),
+      "gentle_up_slope": hf_pyramid_slope(
+        proportion=0.35,
+        slope_range=(0.0, 0.25),
+        platform_width=2.0,
+      ),
+      "low_open_stairs": open_stairs(
+        proportion=0.15,
+        step_height_range=(0.015, 0.055),
+        step_width_range=(0.75, 1.05),
       ),
     },
     add_lights=True,
@@ -407,6 +440,23 @@ def unitree_g1_12dof_discontinuous_env_cfg(
     r".*ankle_roll.*": 0.15,
   }
 
+  # The leg-only model can otherwise learn a low, sliding gait: velocity reward is
+  # reachable without clear swing phases, while clearance terms only shape feet
+  # once they are already moving. Add a modest swing incentive for moving commands.
+  cfg.rewards["air_time"].weight = 0.45
+  cfg.rewards["air_time"].params["command_threshold"] = 0.10
+  cfg.rewards["air_time"].params["threshold_min"] = 0.04
+  cfg.rewards["air_time"].params["threshold_max"] = 0.35
+  cfg.rewards["foot_clearance"].weight = -0.5
+  cfg.rewards["foot_swing_height"].weight = -0.4
+  cfg.rewards["action_rate_l2"].weight = -0.05
+  cfg.terminations["nan_detection"] = TerminationTermCfg(
+    func=envs_mdp.nan_detection,
+    time_out=False,
+  )
+  for obs_group in cfg.observations.values():
+    obs_group.nan_policy = "sanitize"
+
   return cfg
 
 
@@ -416,6 +466,9 @@ def unitree_g1_12dof_easy_discontinuous_env_cfg(
   """Create Unitree G1 12DoF easy discontinuous-terrain walking config."""
   cfg = unitree_g1_easy_discontinuous_env_cfg(play=play)
   cfg.scene.entities = {"robot": get_g1_12dof_robot_cfg()}
+  assert cfg.scene.terrain is not None
+  cfg.scene.terrain.terrain_generator = _g1_12dof_gait_terrains_cfg()
+  cfg.scene.terrain.max_init_terrain_level = 0
 
   joint_pos_action = cfg.actions["joint_pos"]
   assert isinstance(joint_pos_action, JointPositionActionCfg)
@@ -429,21 +482,113 @@ def unitree_g1_12dof_easy_discontinuous_env_cfg(
 
   cfg.rewards["pose"].params["std_standing"] = {".*": 0.05}
   cfg.rewards["pose"].params["std_walking"] = {
-    r".*hip_pitch.*": 0.30,
-    r".*hip_roll.*": 0.15,
-    r".*hip_yaw.*": 0.15,
-    r".*knee.*": 0.35,
-    r".*ankle_pitch.*": 0.25,
-    r".*ankle_roll.*": 0.10,
+    r".*hip_pitch.*": 0.70,
+    r".*hip_roll.*": 0.25,
+    r".*hip_yaw.*": 0.20,
+    r".*knee.*": 0.85,
+    r".*ankle_pitch.*": 0.45,
+    r".*ankle_roll.*": 0.16,
   }
   cfg.rewards["pose"].params["std_running"] = {
-    r".*hip_pitch.*": 0.50,
-    r".*hip_roll.*": 0.20,
-    r".*hip_yaw.*": 0.20,
-    r".*knee.*": 0.60,
-    r".*ankle_pitch.*": 0.35,
-    r".*ankle_roll.*": 0.15,
+    r".*hip_pitch.*": 0.90,
+    r".*hip_roll.*": 0.30,
+    r".*hip_yaw.*": 0.25,
+    r".*knee.*": 1.00,
+    r".*ankle_pitch.*": 0.55,
+    r".*ankle_roll.*": 0.20,
   }
+
+  twist_cmd = cfg.commands["twist"]
+  assert isinstance(twist_cmd, UniformVelocityCommandCfg)
+  twist_cmd.heading_command = False
+  twist_cmd.ranges.lin_vel_x = (0.45, 0.90)
+  twist_cmd.ranges.lin_vel_y = (0.0, 0.0)
+  twist_cmd.ranges.ang_vel_z = (0.0, 0.0)
+  twist_cmd.ranges.heading = None
+  twist_cmd.rel_standing_envs = 0.0
+  twist_cmd.rel_heading_envs = 0.0
+  twist_cmd.rel_forward_envs = 0.0
+  twist_cmd.init_velocity_prob = 0.0
+  twist_cmd.resampling_time_range = (4.0, 7.0)
+  if "push_robot" in cfg.events:
+    cfg.events.pop("push_robot")
+  if "command_vel" in cfg.curriculum:
+    cfg.curriculum["command_vel"].params["velocity_stages"] = [
+      {"step": 0, "lin_vel_x": (0.45, 0.75), "lin_vel_y": (0.0, 0.0), "ang_vel_z": (0.0, 0.0)},
+      {"step": 10_000_000, "lin_vel_x": (0.45, 0.85), "lin_vel_y": (0.0, 0.0), "ang_vel_z": (0.0, 0.0)},
+    ]
+
+  cfg.rewards["track_linear_velocity"].weight = 6.0
+  cfg.rewards["track_linear_velocity"].params["std"] = 0.22
+  cfg.rewards["track_angular_velocity"].weight = 0.4
+  cfg.rewards["upright"].weight = 0.8
+  cfg.rewards["pose"].weight = 0.25
+  cfg.rewards["air_time"].weight = 0.6
+  cfg.rewards["air_time"].params["command_threshold"] = 0.10
+  cfg.rewards["air_time"].params["threshold_min"] = 0.08
+  cfg.rewards["air_time"].params["threshold_max"] = 0.38
+  cfg.rewards["foot_clearance"].weight = -0.20
+  cfg.rewards["foot_clearance"].params["target_height"] = 0.12
+  cfg.rewards["foot_swing_height"].weight = -0.8
+  cfg.rewards["foot_swing_height"].params["target_height"] = 0.12
+  cfg.rewards["foot_slip"].weight = -0.35
+  cfg.rewards["action_rate_l2"].weight = -0.015
+  cfg.rewards["alternating_foot_contacts"] = RewardTermCfg(
+    func=mdp.alternating_foot_contacts,
+    weight=1.0,
+    params={
+      "sensor_name": "feet_ground_contact",
+      "command_name": "twist",
+      "command_threshold": 0.10,
+    },
+  )
+  cfg.rewards["feet_air_time_limit"] = RewardTermCfg(
+    func=mdp.feet_air_time_limit,
+    weight=-3.0,
+    params={
+      "sensor_name": "feet_ground_contact",
+      "max_air_time": 0.42,
+      "command_name": "twist",
+      "command_threshold": 0.10,
+    },
+  )
+  cfg.rewards["feet_air_time_symmetry"] = RewardTermCfg(
+    func=mdp.feet_air_time_symmetry,
+    weight=-1.0,
+    params={
+      "sensor_name": "feet_ground_contact",
+      "command_name": "twist",
+      "command_threshold": 0.10,
+    },
+  )
+  cfg.rewards["no_flight_phase"] = RewardTermCfg(
+    func=mdp.no_flight_phase,
+    weight=-0.8,
+    params={
+      "sensor_name": "feet_ground_contact",
+      "command_name": "twist",
+      "command_threshold": 0.10,
+    },
+  )
+  cfg.terminations["nan_detection"] = TerminationTermCfg(
+    func=envs_mdp.nan_detection,
+    time_out=False,
+  )
+  cfg.terminations["pelvis_too_low"] = TerminationTermCfg(
+    func=envs_mdp.root_height_below_minimum,
+    params={
+      "minimum_height": 0.55,
+      "asset_cfg": SceneEntityCfg("robot", body_names=("pelvis",)),
+    },
+    time_out=False,
+  )
+  for obs_group in cfg.observations.values():
+    obs_group.nan_policy = "sanitize"
+
+  if play:
+    twist_cmd.ranges.lin_vel_x = (0.45, 0.45)
+    twist_cmd.ranges.lin_vel_y = (0.0, 0.0)
+    twist_cmd.ranges.ang_vel_z = (0.0, 0.0)
 
   return cfg
 

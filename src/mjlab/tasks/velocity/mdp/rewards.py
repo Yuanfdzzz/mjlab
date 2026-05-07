@@ -238,6 +238,135 @@ def feet_air_time(
   return reward
 
 
+def _command_active(
+  env: ManagerBasedRlEnv,
+  command_name: str | None,
+  command_threshold: float,
+) -> torch.Tensor:
+  if command_name is None:
+    return torch.ones(env.num_envs, device=env.device, dtype=torch.float32)
+  command = env.command_manager.get_command(command_name)
+  if command is None:
+    return torch.ones(env.num_envs, device=env.device, dtype=torch.float32)
+  linear_norm = torch.norm(command[:, :2], dim=1)
+  angular_norm = torch.abs(command[:, 2])
+  return ((linear_norm + angular_norm) > command_threshold).float()
+
+
+def feet_air_time_limit(
+  env: ManagerBasedRlEnv,
+  sensor_name: str,
+  max_air_time: float,
+  command_name: str | None = None,
+  command_threshold: float = 0.05,
+) -> torch.Tensor:
+  """Penalize feet that stay airborne too long.
+
+  This discourages the lower-body policy from carrying one leg in the air while
+  hopping or sliding on the other leg.
+  """
+  sensor: ContactSensor = env.scene[sensor_name]
+  current_air_time = sensor.data.current_air_time
+  assert current_air_time is not None
+  excess = torch.relu(current_air_time - max_air_time)
+  cost = torch.sum(torch.square(excess), dim=1)
+  env.extras["log"]["Metrics/max_foot_air_time"] = torch.max(current_air_time)
+  return cost * _command_active(env, command_name, command_threshold)
+
+
+def no_flight_phase(
+  env: ManagerBasedRlEnv,
+  sensor_name: str,
+  command_name: str | None = None,
+  command_threshold: float = 0.05,
+) -> torch.Tensor:
+  """Penalize having both feet airborne at the same time."""
+  sensor: ContactSensor = env.scene[sensor_name]
+  assert sensor.data.found is not None
+  in_air = sensor.data.found == 0
+  both_air = torch.all(in_air, dim=1).float()
+  env.extras["log"]["Metrics/both_feet_airborne_rate"] = torch.mean(both_air)
+  return both_air * _command_active(env, command_name, command_threshold)
+
+
+class feet_air_time_symmetry:
+  """Penalize large left/right imbalance in accumulated swing time."""
+
+  def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
+    del cfg
+    self._accum_air = torch.zeros((env.num_envs, 2), device=env.device)
+    self._active_time = torch.zeros(env.num_envs, device=env.device)
+    self._step_dt = env.step_dt
+
+  def __call__(
+    self,
+    env: ManagerBasedRlEnv,
+    sensor_name: str,
+    command_name: str | None = None,
+    command_threshold: float = 0.05,
+  ) -> torch.Tensor:
+    sensor: ContactSensor = env.scene[sensor_name]
+    assert sensor.data.found is not None
+    active = _command_active(env, command_name, command_threshold)
+    in_air = (sensor.data.found == 0).float()
+    self._accum_air += in_air * active.unsqueeze(1) * self._step_dt
+    self._active_time += active * self._step_dt
+    denom = torch.clamp(self._active_time, min=self._step_dt)
+    imbalance = torch.abs(self._accum_air[:, 0] - self._accum_air[:, 1]) / denom
+    env.extras["log"]["Metrics/foot_air_time_imbalance"] = torch.mean(imbalance)
+    return torch.square(imbalance) * active
+
+  def reset(self, env_ids: torch.Tensor) -> None:
+    self._accum_air[env_ids] = 0.0
+    self._active_time[env_ids] = 0.0
+
+
+class alternating_foot_contacts:
+  """Reward touchdowns that alternate left and right feet."""
+
+  def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
+    del cfg
+    self._last_landing_foot = torch.full(
+      (env.num_envs,), -1, device=env.device, dtype=torch.long
+    )
+    self._step_dt = env.step_dt
+
+  def __call__(
+    self,
+    env: ManagerBasedRlEnv,
+    sensor_name: str,
+    command_name: str | None = None,
+    command_threshold: float = 0.05,
+  ) -> torch.Tensor:
+    sensor: ContactSensor = env.scene[sensor_name]
+    first_contact = sensor.compute_first_contact(dt=self._step_dt)
+    single_landing = torch.sum(first_contact.float(), dim=1) == 1
+    landing_foot = torch.argmax(first_contact.float(), dim=1)
+    has_previous = self._last_landing_foot >= 0
+    alternated = (
+      single_landing & has_previous & (landing_foot != self._last_landing_foot)
+    )
+    repeated = (
+      single_landing & has_previous & (landing_foot == self._last_landing_foot)
+    )
+
+    if torch.any(single_landing):
+      self._last_landing_foot[single_landing] = landing_foot[single_landing]
+
+    active = _command_active(env, command_name, command_threshold)
+    landing_count = torch.clamp(single_landing.float().sum(), min=1)
+    env.extras["log"]["Metrics/alternating_landing_rate"] = (
+      alternated.float().sum() / landing_count
+    )
+    env.extras["log"]["Metrics/repeated_landing_rate"] = (
+      repeated.float().sum() / landing_count
+    )
+    return alternated.float() * active
+
+  def reset(self, env_ids: torch.Tensor) -> None:
+    self._last_landing_foot[env_ids] = -1
+
+
 def feet_clearance(
   env: ManagerBasedRlEnv,
   target_height: float,

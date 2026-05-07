@@ -213,7 +213,7 @@ cmd_play() {
     --checkpoint-file="${ckpt}" \
     --num-envs="${PLAY_ENVS:-1}" \
     --viewer="${VIEWER}" \
-    --no-terminations=True
+    --no-terminations="${PLAY_NO_TERMINATIONS:-False}"
 }
 
 cmd_tensorboard() {

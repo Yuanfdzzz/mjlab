@@ -106,9 +106,7 @@ class ViserPlayViewer(BaseViewer):
     )
 
     self._scene.env_idx = self.cfg.env_idx
-    self._scene.debug_visualization_enabled = (
-      True  # Enable debug visualization by default
-    )
+    self._scene.debug_visualization_enabled = False
 
     # Create tab group.
     tabs = self._server.gui.add_tab_group()

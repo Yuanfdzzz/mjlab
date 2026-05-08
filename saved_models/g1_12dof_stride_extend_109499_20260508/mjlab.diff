@@ -1,0 +1,357 @@
+--- git commit ---
+a91a4d2dba844fb4c6f2ef8603980781537d6b88
+
+
+--- git status ---
+On branch g1-12dof-easy-discontinuous-migration
+Your branch is up to date with 'origin/g1-12dof-easy-discontinuous-migration'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   src/mjlab/tasks/velocity/config/g1/env_cfgs.py
+	modified:   src/mjlab/tasks/velocity/mdp/rewards.py
+
+no changes added to commit (use "git add" and/or "git commit -a") 
+
+
+--- git diff ---
+diff --git a/src/mjlab/tasks/velocity/config/g1/env_cfgs.py b/src/mjlab/tasks/velocity/config/g1/env_cfgs.py
+index 3b368dcf..387fa233 100644
+--- a/src/mjlab/tasks/velocity/config/g1/env_cfgs.py
++++ b/src/mjlab/tasks/velocity/config/g1/env_cfgs.py
+@@ -135,7 +135,7 @@ def _g1_12dof_gait_terrains_cfg() -> TerrainGeneratorCfg:
+ 
+   The 12DoF lower-body policy needs to learn forward steps before it can survive
+   foothold gaps. Keep the first retraining stage dominated by flat ground and
+-  gentle slopes, with low stairs only as a mild foot-clearance signal.
++  gentle slopes, with moderate stairs as a foot-clearance signal.
+   """
+   return TerrainGeneratorCfg(
+     size=(8.0, 8.0),
+@@ -152,8 +152,8 @@ def _g1_12dof_gait_terrains_cfg() -> TerrainGeneratorCfg:
+       ),
+       "low_open_stairs": open_stairs(
+         proportion=0.15,
+-        step_height_range=(0.015, 0.055),
+-        step_width_range=(0.75, 1.05),
++        step_height_range=(0.040, 0.140),
++        step_width_range=(0.65, 0.95),
+       ),
+     },
+     add_lights=True,
+@@ -526,11 +526,11 @@ def unitree_g1_12dof_easy_discontinuous_env_cfg(
+   cfg.rewards["air_time"].weight = 0.6
+   cfg.rewards["air_time"].params["command_threshold"] = 0.10
+   cfg.rewards["air_time"].params["threshold_min"] = 0.08
+-  cfg.rewards["air_time"].params["threshold_max"] = 0.38
++  cfg.rewards["air_time"].params["threshold_max"] = 0.46
+   cfg.rewards["foot_clearance"].weight = -0.20
+-  cfg.rewards["foot_clearance"].params["target_height"] = 0.12
++  cfg.rewards["foot_clearance"].params["target_height"] = 0.16
+   cfg.rewards["foot_swing_height"].weight = -0.8
+-  cfg.rewards["foot_swing_height"].params["target_height"] = 0.12
++  cfg.rewards["foot_swing_height"].params["target_height"] = 0.16
+   cfg.rewards["foot_slip"].weight = -0.35
+   cfg.rewards["action_rate_l2"].weight = -0.015
+   cfg.rewards["alternating_foot_contacts"] = RewardTermCfg(
+@@ -542,12 +542,77 @@ def unitree_g1_12dof_easy_discontinuous_env_cfg(
+       "command_threshold": 0.10,
+     },
+   )
++  foot_site_cfg = SceneEntityCfg("robot", site_names=("left_foot", "right_foot"))
++  cfg.rewards["sagittal_step_landing"] = RewardTermCfg(
++    func=mdp.sagittal_step_landing,
++    weight=2.2,
++    params={
++      "sensor_name": "feet_ground_contact",
++      "pass_margin": 0.10,
++      "asset_cfg": foot_site_cfg,
++      "command_name": "twist",
++      "command_threshold": 0.10,
++    },
++  )
++  cfg.rewards["sagittal_foot_order_switch"] = RewardTermCfg(
++    func=mdp.sagittal_foot_order_switch,
++    weight=1.2,
++    params={
++      "deadband": 0.08,
++      "asset_cfg": foot_site_cfg,
++      "command_name": "twist",
++      "command_threshold": 0.10,
++    },
++  )
++  cfg.rewards["sagittal_foot_order_stall"] = RewardTermCfg(
++    func=mdp.sagittal_foot_order_stall,
++    weight=-2.0,
++    params={
++      "deadband": 0.08,
++      "max_same_order_time": 0.90,
++      "asset_cfg": foot_site_cfg,
++      "command_name": "twist",
++      "command_threshold": 0.10,
++    },
++  )
++  cfg.rewards["sagittal_foot_separation"] = RewardTermCfg(
++    func=mdp.sagittal_foot_separation_cost,
++    weight=-12.0,
++    params={
++      "min_separation": 0.16,
++      "asset_cfg": foot_site_cfg,
++      "command_name": "twist",
++      "command_threshold": 0.10,
++    },
++  )
++  cfg.rewards["sagittal_stride_centering"] = RewardTermCfg(
++    func=mdp.sagittal_stride_centering_cost,
++    weight=-8.0,
++    params={
++      "center_target": -0.02,
++      "center_tolerance": 0.04,
++      "asset_cfg": foot_site_cfg,
++      "command_name": "twist",
++      "command_threshold": 0.10,
++    },
++  )
++  cfg.rewards["sagittal_front_rear_split"] = RewardTermCfg(
++    func=mdp.sagittal_front_rear_split_cost,
++    weight=-10.0,
++    params={
++      "min_front_x": 0.06,
++      "max_rear_x": -0.06,
++      "asset_cfg": foot_site_cfg,
++      "command_name": "twist",
++      "command_threshold": 0.10,
++    },
++  )
+   cfg.rewards["feet_air_time_limit"] = RewardTermCfg(
+     func=mdp.feet_air_time_limit,
+     weight=-3.0,
+     params={
+       "sensor_name": "feet_ground_contact",
+-      "max_air_time": 0.42,
++      "max_air_time": 0.50,
+       "command_name": "twist",
+       "command_threshold": 0.10,
+     },
+diff --git a/src/mjlab/tasks/velocity/mdp/rewards.py b/src/mjlab/tasks/velocity/mdp/rewards.py
+index 3b75f286..cde01032 100644
+--- a/src/mjlab/tasks/velocity/mdp/rewards.py
++++ b/src/mjlab/tasks/velocity/mdp/rewards.py
+@@ -367,6 +367,216 @@ class alternating_foot_contacts:
+     self._last_landing_foot[env_ids] = -1
+ 
+ 
++def _foot_x_positions_b(
++  env: ManagerBasedRlEnv,
++  asset_cfg: SceneEntityCfg,
++) -> torch.Tensor:
++  asset: Entity = env.scene[asset_cfg.name]
++  foot_pos_w = asset.data.site_pos_w[:, asset_cfg.site_ids, :]
++  root_pos_w = asset.data.root_link_pos_w[:, None, :]
++  rel_pos_w = foot_pos_w - root_pos_w
++  root_quat_w = asset.data.root_link_quat_w[:, None, :].expand(
++    -1, rel_pos_w.shape[1], -1
++  )
++  rel_pos_b = quat_apply_inverse(
++    root_quat_w.reshape(-1, 4),
++    rel_pos_w.reshape(-1, 3),
++  ).reshape(env.num_envs, rel_pos_w.shape[1], 3)
++  return rel_pos_b[:, :, 0]
++
++
++class sagittal_step_landing:
++  """Reward touchdowns where the landing foot has passed the support foot."""
++
++  def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
++    del cfg
++    self._step_dt = env.step_dt
++
++  def __call__(
++    self,
++    env: ManagerBasedRlEnv,
++    sensor_name: str,
++    pass_margin: float,
++    asset_cfg: SceneEntityCfg,
++    command_name: str | None = None,
++    command_threshold: float = 0.05,
++  ) -> torch.Tensor:
++    contact_sensor: ContactSensor = env.scene[sensor_name]
++    first_contact = contact_sensor.compute_first_contact(dt=self._step_dt)
++    single_landing = torch.sum(first_contact.float(), dim=1) == 1
++    landing_foot = torch.argmax(first_contact.float(), dim=1)
++
++    foot_x_b = _foot_x_positions_b(env, asset_cfg)
++    dx_left_right = foot_x_b[:, 0] - foot_x_b[:, 1]
++    left_passed = (landing_foot == 0) & (dx_left_right > pass_margin)
++    right_passed = (landing_foot == 1) & (-dx_left_right > pass_margin)
++    passed = single_landing & (left_passed | right_passed)
++
++    landing_count = torch.clamp(single_landing.float().sum(), min=1)
++    env.extras["log"]["Metrics/sagittal_passed_landing_rate"] = (
++      passed.float().sum() / landing_count
++    )
++    env.extras["log"]["Metrics/foot_x_separation_mean"] = torch.mean(
++      torch.abs(dx_left_right)
++    )
++    return passed.float() * _command_active(env, command_name, command_threshold)
++
++
++class sagittal_foot_order_switch:
++  """Reward left/right feet swapping which one is ahead in the sagittal plane."""
++
++  def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
++    del cfg
++    self._last_order = torch.zeros(env.num_envs, device=env.device, dtype=torch.long)
++
++  def __call__(
++    self,
++    env: ManagerBasedRlEnv,
++    deadband: float,
++    asset_cfg: SceneEntityCfg,
++    command_name: str | None = None,
++    command_threshold: float = 0.05,
++  ) -> torch.Tensor:
++    foot_x_b = _foot_x_positions_b(env, asset_cfg)
++    dx_left_right = foot_x_b[:, 0] - foot_x_b[:, 1]
++    order = torch.where(
++      dx_left_right > deadband,
++      torch.ones_like(self._last_order),
++      torch.where(
++        dx_left_right < -deadband,
++        -torch.ones_like(self._last_order),
++        torch.zeros_like(self._last_order),
++      ),
++    )
++    active = _command_active(env, command_name, command_threshold).bool()
++    valid = active & (order != 0)
++    has_previous = self._last_order != 0
++    switched = valid & has_previous & (order != self._last_order)
++    if torch.any(valid):
++      self._last_order[valid] = order[valid]
++    valid_count = torch.clamp(valid.float().sum(), min=1)
++    env.extras["log"]["Metrics/sagittal_order_switch_rate"] = (
++      switched.float().sum() / valid_count
++    )
++    return switched.float() * active.float()
++
++  def reset(self, env_ids: torch.Tensor) -> None:
++    self._last_order[env_ids] = 0
++
++
++class sagittal_foot_order_stall:
++  """Penalize keeping the same foot ahead for too long while moving."""
++
++  def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
++    del cfg
++    self._last_order = torch.zeros(env.num_envs, device=env.device, dtype=torch.long)
++    self._time_same_order = torch.zeros(env.num_envs, device=env.device)
++    self._step_dt = env.step_dt
++
++  def __call__(
++    self,
++    env: ManagerBasedRlEnv,
++    deadband: float,
++    max_same_order_time: float,
++    asset_cfg: SceneEntityCfg,
++    command_name: str | None = None,
++    command_threshold: float = 0.05,
++  ) -> torch.Tensor:
++    foot_x_b = _foot_x_positions_b(env, asset_cfg)
++    dx_left_right = foot_x_b[:, 0] - foot_x_b[:, 1]
++    order = torch.where(
++      dx_left_right > deadband,
++      torch.ones_like(self._last_order),
++      torch.where(
++        dx_left_right < -deadband,
++        -torch.ones_like(self._last_order),
++        torch.zeros_like(self._last_order),
++      ),
++    )
++    active = _command_active(env, command_name, command_threshold).bool()
++    valid = active & (order != 0)
++    same_order = valid & (self._last_order == order)
++    new_order = valid & ~same_order
++
++    self._time_same_order = torch.where(
++      same_order,
++      self._time_same_order + self._step_dt,
++      torch.zeros_like(self._time_same_order),
++    )
++    if torch.any(new_order):
++      self._last_order[new_order] = order[new_order]
++      self._time_same_order[new_order] = self._step_dt
++    inactive = ~valid
++    if torch.any(inactive):
++      self._time_same_order[inactive] = 0.0
++
++    excess = torch.relu(self._time_same_order - max_same_order_time)
++    env.extras["log"]["Metrics/sagittal_order_time_mean"] = torch.mean(
++      self._time_same_order
++    )
++    return torch.square(excess) * active.float()
++
++  def reset(self, env_ids: torch.Tensor) -> None:
++    self._last_order[env_ids] = 0
++    self._time_same_order[env_ids] = 0.0
++
++
++def sagittal_foot_separation_cost(
++  env: ManagerBasedRlEnv,
++  min_separation: float,
++  asset_cfg: SceneEntityCfg,
++  command_name: str | None = None,
++  command_threshold: float = 0.05,
++) -> torch.Tensor:
++  """Penalize short shuffling steps in the sagittal plane."""
++  foot_x_b = _foot_x_positions_b(env, asset_cfg)
++  separation = torch.abs(foot_x_b[:, 0] - foot_x_b[:, 1])
++  shortfall = torch.relu(min_separation - separation)
++  env.extras["log"]["Metrics/foot_x_separation_mean"] = torch.mean(separation)
++  env.extras["log"]["Metrics/foot_x_separation_shortfall"] = torch.mean(shortfall)
++  return torch.square(shortfall) * _command_active(env, command_name, command_threshold)
++
++
++def sagittal_stride_centering_cost(
++  env: ManagerBasedRlEnv,
++  center_target: float,
++  center_tolerance: float,
++  asset_cfg: SceneEntityCfg,
++  command_name: str | None = None,
++  command_threshold: float = 0.05,
++) -> torch.Tensor:
++  """Penalize both feet staying too far in front of or behind the pelvis."""
++  foot_x_b = _foot_x_positions_b(env, asset_cfg)
++  center_x = torch.mean(foot_x_b, dim=1)
++  error = torch.relu(torch.abs(center_x - center_target) - center_tolerance)
++  env.extras["log"]["Metrics/foot_x_center_mean"] = torch.mean(center_x)
++  env.extras["log"]["Metrics/foot_x_center_abs_error"] = torch.mean(
++    torch.abs(center_x - center_target)
++  )
++  return torch.square(error) * _command_active(env, command_name, command_threshold)
++
++
++def sagittal_front_rear_split_cost(
++  env: ManagerBasedRlEnv,
++  min_front_x: float,
++  max_rear_x: float,
++  asset_cfg: SceneEntityCfg,
++  command_name: str | None = None,
++  command_threshold: float = 0.05,
++) -> torch.Tensor:
++  """Require one foot ahead of the pelvis and the other behind it."""
++  foot_x_b = _foot_x_positions_b(env, asset_cfg)
++  front_x = torch.max(foot_x_b, dim=1).values
++  rear_x = torch.min(foot_x_b, dim=1).values
++  front_shortfall = torch.relu(min_front_x - front_x)
++  rear_shortfall = torch.relu(rear_x - max_rear_x)
++  env.extras["log"]["Metrics/front_foot_x_mean"] = torch.mean(front_x)
++  env.extras["log"]["Metrics/rear_foot_x_mean"] = torch.mean(rear_x)
++  return (
++    torch.square(front_shortfall) + torch.square(rear_shortfall)
++  ) * _command_active(env, command_name, command_threshold)
++
++
+ def feet_clearance(
+   env: ManagerBasedRlEnv,
+   target_height: float,

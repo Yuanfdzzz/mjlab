@@ -135,7 +135,7 @@ def _g1_12dof_gait_terrains_cfg() -> TerrainGeneratorCfg:
 
   The 12DoF lower-body policy needs to learn forward steps before it can survive
   foothold gaps. Keep the first retraining stage dominated by flat ground and
-  gentle slopes, with low stairs only as a mild foot-clearance signal.
+  gentle slopes, with moderate stairs as a foot-clearance signal.
   """
   return TerrainGeneratorCfg(
     size=(8.0, 8.0),
@@ -152,8 +152,8 @@ def _g1_12dof_gait_terrains_cfg() -> TerrainGeneratorCfg:
       ),
       "low_open_stairs": open_stairs(
         proportion=0.15,
-        step_height_range=(0.015, 0.055),
-        step_width_range=(0.75, 1.05),
+        step_height_range=(0.040, 0.140),
+        step_width_range=(0.65, 0.95),
       ),
     },
     add_lights=True,
@@ -526,11 +526,11 @@ def unitree_g1_12dof_easy_discontinuous_env_cfg(
   cfg.rewards["air_time"].weight = 0.6
   cfg.rewards["air_time"].params["command_threshold"] = 0.10
   cfg.rewards["air_time"].params["threshold_min"] = 0.08
-  cfg.rewards["air_time"].params["threshold_max"] = 0.38
+  cfg.rewards["air_time"].params["threshold_max"] = 0.46
   cfg.rewards["foot_clearance"].weight = -0.20
-  cfg.rewards["foot_clearance"].params["target_height"] = 0.12
+  cfg.rewards["foot_clearance"].params["target_height"] = 0.16
   cfg.rewards["foot_swing_height"].weight = -0.8
-  cfg.rewards["foot_swing_height"].params["target_height"] = 0.12
+  cfg.rewards["foot_swing_height"].params["target_height"] = 0.16
   cfg.rewards["foot_slip"].weight = -0.35
   cfg.rewards["action_rate_l2"].weight = -0.015
   cfg.rewards["alternating_foot_contacts"] = RewardTermCfg(
@@ -542,12 +542,77 @@ def unitree_g1_12dof_easy_discontinuous_env_cfg(
       "command_threshold": 0.10,
     },
   )
+  foot_site_cfg = SceneEntityCfg("robot", site_names=("left_foot", "right_foot"))
+  cfg.rewards["sagittal_step_landing"] = RewardTermCfg(
+    func=mdp.sagittal_step_landing,
+    weight=2.2,
+    params={
+      "sensor_name": "feet_ground_contact",
+      "pass_margin": 0.10,
+      "asset_cfg": foot_site_cfg,
+      "command_name": "twist",
+      "command_threshold": 0.10,
+    },
+  )
+  cfg.rewards["sagittal_foot_order_switch"] = RewardTermCfg(
+    func=mdp.sagittal_foot_order_switch,
+    weight=1.2,
+    params={
+      "deadband": 0.08,
+      "asset_cfg": foot_site_cfg,
+      "command_name": "twist",
+      "command_threshold": 0.10,
+    },
+  )
+  cfg.rewards["sagittal_foot_order_stall"] = RewardTermCfg(
+    func=mdp.sagittal_foot_order_stall,
+    weight=-2.0,
+    params={
+      "deadband": 0.08,
+      "max_same_order_time": 0.90,
+      "asset_cfg": foot_site_cfg,
+      "command_name": "twist",
+      "command_threshold": 0.10,
+    },
+  )
+  cfg.rewards["sagittal_foot_separation"] = RewardTermCfg(
+    func=mdp.sagittal_foot_separation_cost,
+    weight=-12.0,
+    params={
+      "min_separation": 0.16,
+      "asset_cfg": foot_site_cfg,
+      "command_name": "twist",
+      "command_threshold": 0.10,
+    },
+  )
+  cfg.rewards["sagittal_stride_centering"] = RewardTermCfg(
+    func=mdp.sagittal_stride_centering_cost,
+    weight=-8.0,
+    params={
+      "center_target": -0.02,
+      "center_tolerance": 0.04,
+      "asset_cfg": foot_site_cfg,
+      "command_name": "twist",
+      "command_threshold": 0.10,
+    },
+  )
+  cfg.rewards["sagittal_front_rear_split"] = RewardTermCfg(
+    func=mdp.sagittal_front_rear_split_cost,
+    weight=-10.0,
+    params={
+      "min_front_x": 0.06,
+      "max_rear_x": -0.06,
+      "asset_cfg": foot_site_cfg,
+      "command_name": "twist",
+      "command_threshold": 0.10,
+    },
+  )
   cfg.rewards["feet_air_time_limit"] = RewardTermCfg(
     func=mdp.feet_air_time_limit,
     weight=-3.0,
     params={
       "sensor_name": "feet_ground_contact",
-      "max_air_time": 0.42,
+      "max_air_time": 0.50,
       "command_name": "twist",
       "command_threshold": 0.10,
     },

@@ -18,6 +18,9 @@ RUN_NAME="${RUN_NAME:-g1_12dof_easy_disc_$(date +%Y%m%d_%H%M%S)}"
 VIEWER="${VIEWER:-viser}"
 TB_PORT="${TB_PORT:-6006}"
 PLAY_PORT_HINT="${PLAY_PORT_HINT:-8080}"
+BASE_LOAD_RUN="${BASE_LOAD_RUN:-.*BASE_g1_12dof_stride_extend_109499_20260508}"
+BASE_LOAD_CHECKPOINT="${BASE_LOAD_CHECKPOINT:-model_109499.pt}"
+RESUME_FROM_BASE="${RESUME_FROM_BASE:-True}"
 
 usage() {
   cat <<EOF
@@ -27,6 +30,7 @@ Usage:
   $(basename "$0") train [extra train args...]
   $(basename "$0") train-bg [extra train args...]
   $(basename "$0") resume [extra train args...]
+  $(basename "$0") resume-bg [extra train args...]
   $(basename "$0") play [checkpoint.pt]
   $(basename "$0") tensorboard
   $(basename "$0") latest
@@ -37,9 +41,13 @@ Defaults:
   TASK=${TASK}
   NUM_ENVS=${NUM_ENVS}
   ITERS=${ITERS}
+  RESUME_FROM_BASE=${RESUME_FROM_BASE}
+  BASE_LOAD_RUN=${BASE_LOAD_RUN}
+  BASE_LOAD_CHECKPOINT=${BASE_LOAD_CHECKPOINT}
 
 Common overrides:
   NUM_ENVS=1024 ITERS=20000 RUN_NAME=my_run $(basename "$0") train-bg
+  RESUME_FROM_BASE=False RUN_NAME=fresh_run $(basename "$0") train-bg
   TASK=Mjlab-Velocity-Discontinuous-Unitree-G1-12Dof $(basename "$0") smoke
   LOAD_RUN='.*easy_disc.*' LOAD_CHECKPOINT='model_.*.pt' $(basename "$0") resume
   CKPT=/path/to/model_5250.pt $(basename "$0") play
@@ -69,6 +77,15 @@ latest_checkpoint() {
     | sort -n \
     | tail -n 1 \
     | cut -d' ' -f2-
+}
+
+base_resume_args() {
+  if [ "${RESUME_FROM_BASE}" = "True" ] || [ "${RESUME_FROM_BASE}" = "true" ] || [ "${RESUME_FROM_BASE}" = "1" ]; then
+    printf '%s\n' \
+      "--agent.resume=True" \
+      "--agent.load-run=${BASE_LOAD_RUN}" \
+      "--agent.load-checkpoint=${BASE_LOAD_CHECKPOINT}"
+  fi
 }
 
 cmd_check() {
@@ -151,12 +168,15 @@ cmd_smoke() {
 cmd_train() {
   require_mjlab
   cd "${MJLAB_DIR}"
+  local resume_args=()
+  mapfile -t resume_args < <(base_resume_args)
   .venv/bin/train "${TASK}" \
     --env.scene.num-envs="${NUM_ENVS}" \
     --agent.max-iterations="${ITERS}" \
     --agent.logger="${LOGGER}" \
     --agent.upload-model="${UPLOAD_MODEL}" \
     --agent.run-name="${RUN_NAME}" \
+    "${resume_args[@]}" \
     "$@"
 }
 
@@ -166,6 +186,8 @@ cmd_train_bg() {
   mkdir -p logs
   local stdout_log="logs/${RUN_NAME}.stdout.log"
   local pid_file="logs/${RUN_NAME}.pid"
+  local resume_args=()
+  mapfile -t resume_args < <(base_resume_args)
 
   setsid env PYTHONUNBUFFERED=1 .venv/bin/train "${TASK}" \
     --env.scene.num-envs="${NUM_ENVS}" \
@@ -173,6 +195,7 @@ cmd_train_bg() {
     --agent.logger="${LOGGER}" \
     --agent.upload-model="${UPLOAD_MODEL}" \
     --agent.run-name="${RUN_NAME}" \
+    "${resume_args[@]}" \
     "$@" \
     > "${stdout_log}" 2>&1 < /dev/null &
   local pid=$!
@@ -186,8 +209,8 @@ cmd_train_bg() {
 cmd_resume() {
   require_mjlab
   cd "${MJLAB_DIR}"
-  local load_run="${LOAD_RUN:-.*}"
-  local load_checkpoint="${LOAD_CHECKPOINT:-model_.*.pt}"
+  local load_run="${LOAD_RUN:-${BASE_LOAD_RUN}}"
+  local load_checkpoint="${LOAD_CHECKPOINT:-${BASE_LOAD_CHECKPOINT}}"
   .venv/bin/train "${TASK}" \
     --env.scene.num-envs="${NUM_ENVS}" \
     --agent.max-iterations="${ITERS}" \
@@ -198,6 +221,34 @@ cmd_resume() {
     --agent.load-run="${load_run}" \
     --agent.load-checkpoint="${load_checkpoint}" \
     "$@"
+}
+
+cmd_resume_bg() {
+  require_mjlab
+  cd "${MJLAB_DIR}"
+  mkdir -p logs
+  local load_run="${LOAD_RUN:-${BASE_LOAD_RUN}}"
+  local load_checkpoint="${LOAD_CHECKPOINT:-${BASE_LOAD_CHECKPOINT}}"
+  local stdout_log="logs/${RUN_NAME}.stdout.log"
+  local pid_file="logs/${RUN_NAME}.pid"
+
+  setsid env PYTHONUNBUFFERED=1 .venv/bin/train "${TASK}" \
+    --env.scene.num-envs="${NUM_ENVS}" \
+    --agent.max-iterations="${ITERS}" \
+    --agent.logger="${LOGGER}" \
+    --agent.upload-model="${UPLOAD_MODEL}" \
+    --agent.run-name="${RUN_NAME}" \
+    --agent.resume=True \
+    --agent.load-run="${load_run}" \
+    --agent.load-checkpoint="${load_checkpoint}" \
+    "$@" \
+    > "${stdout_log}" 2>&1 < /dev/null &
+  local pid=$!
+  echo "${pid}" > "${pid_file}"
+  printf 'Started background resumed training\n'
+  printf 'PID: %s\n' "${pid}"
+  printf 'stdout: %s/%s\n' "${MJLAB_DIR}" "${stdout_log}"
+  printf 'pid file: %s/%s\n' "${MJLAB_DIR}" "${pid_file}"
 }
 
 cmd_play() {
@@ -258,6 +309,7 @@ main() {
     train) cmd_train "$@" ;;
     train-bg) cmd_train_bg "$@" ;;
     resume) cmd_resume "$@" ;;
+    resume-bg) cmd_resume_bg "$@" ;;
     play) cmd_play "$@" ;;
     tensorboard) cmd_tensorboard "$@" ;;
     latest) cmd_latest "$@" ;;

@@ -97,3 +97,44 @@ def terrain_edge_reached(
   at_edge &= env.episode_length_buf > 2
 
   return at_edge
+
+
+def lateral_deviation_above(
+  env: ManagerBasedRlEnv,
+  maximum_deviation: float,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Terminate when the robot leaves the forward walking lane."""
+  asset: Entity = env.scene[asset_cfg.name]
+  lateral = torch.abs(asset.data.root_link_pos_w[:, 1] - env.scene.env_origins[:, 1])
+  out_of_lane = lateral > maximum_deviation
+  out_of_lane &= env.episode_length_buf > 2
+  return out_of_lane
+
+
+def foot_contact_time_above(
+  env: ManagerBasedRlEnv,
+  sensor_name: str,
+  foot_index: int,
+  maximum_contact_time: float,
+  minimum_episode_time: float = 0.0,
+  command_name: str | None = None,
+  command_threshold: float = 0.05,
+) -> torch.Tensor:
+  """Terminate if one foot refuses to lift during commanded walking."""
+  sensor: ContactSensor = env.scene[sensor_name]
+  current_contact_time = sensor.data.current_contact_time
+  assert current_contact_time is not None
+
+  done = current_contact_time[:, foot_index] > maximum_contact_time
+  if minimum_episode_time > 0.0:
+    done &= env.episode_length_buf * env.step_dt > minimum_episode_time
+
+  if command_name is not None:
+    command = env.command_manager.get_command(command_name)
+    if command is not None:
+      linear_norm = torch.norm(command[:, :2], dim=1)
+      angular_norm = torch.abs(command[:, 2])
+      done &= (linear_norm + angular_norm) > command_threshold
+
+  return done

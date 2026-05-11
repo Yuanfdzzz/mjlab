@@ -1,0 +1,1246 @@
+--- git commit ---
+4579c4f0248de338698a56b84f463889906fa400
+
+
+--- git status ---
+On branch g1-12dof-easy-discontinuous-migration
+Your branch is up to date with 'origin/g1-12dof-easy-discontinuous-migration'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   g1_12dof_mjlab_train.sh
+	modified:   src/mjlab/tasks/velocity/config/g1/env_cfgs.py
+	modified:   src/mjlab/tasks/velocity/mdp/curriculums.py
+	modified:   src/mjlab/tasks/velocity/mdp/rewards.py
+	modified:   src/mjlab/tasks/velocity/mdp/terminations.py
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	saved_models/g1_12dof_current_best_recover_walk_161500_20260511/
+
+no changes added to commit (use "git add" and/or "git commit -a") 
+
+
+--- git diff ---
+diff --git a/g1_12dof_mjlab_train.sh b/g1_12dof_mjlab_train.sh
+index f0a2725c..af3da74d 100755
+--- a/g1_12dof_mjlab_train.sh
++++ b/g1_12dof_mjlab_train.sh
+@@ -18,8 +18,8 @@ RUN_NAME="${RUN_NAME:-g1_12dof_easy_disc_$(date +%Y%m%d_%H%M%S)}"
+ VIEWER="${VIEWER:-viser}"
+ TB_PORT="${TB_PORT:-6006}"
+ PLAY_PORT_HINT="${PLAY_PORT_HINT:-8080}"
+-BASE_LOAD_RUN="${BASE_LOAD_RUN:-.*BASE_g1_12dof_stride_extend_109499_20260508}"
+-BASE_LOAD_CHECKPOINT="${BASE_LOAD_CHECKPOINT:-model_109499.pt}"
++BASE_LOAD_RUN="${BASE_LOAD_RUN:-.*g1_12dof_stage2_recover_walk_20260511_124831}"
++BASE_LOAD_CHECKPOINT="${BASE_LOAD_CHECKPOINT:-model_161500.pt}"
+ RESUME_FROM_BASE="${RESUME_FROM_BASE:-True}"
+ 
+ usage() {
+diff --git a/src/mjlab/tasks/velocity/config/g1/env_cfgs.py b/src/mjlab/tasks/velocity/config/g1/env_cfgs.py
+index 387fa233..cd669647 100644
+--- a/src/mjlab/tasks/velocity/config/g1/env_cfgs.py
++++ b/src/mjlab/tasks/velocity/config/g1/env_cfgs.py
+@@ -9,6 +9,7 @@ from mjlab.asset_zoo.robots import (
+ from mjlab.envs import ManagerBasedRlEnvCfg
+ from mjlab.envs import mdp as envs_mdp
+ from mjlab.envs.mdp.actions import JointPositionActionCfg
++from mjlab.managers.curriculum_manager import CurriculumTermCfg
+ from mjlab.managers.event_manager import EventTermCfg
+ from mjlab.managers.reward_manager import RewardTermCfg
+ from mjlab.managers.scene_entity_config import SceneEntityCfg
+@@ -131,29 +132,28 @@ def _g1_easy_discontinuous_terrains_cfg() -> TerrainGeneratorCfg:
+ 
+ 
+ def _g1_12dof_gait_terrains_cfg() -> TerrainGeneratorCfg:
+-  """Early gait curriculum for the leg-only G1 model.
++  """Stage-1 gait curriculum for the 12DoF G1 model.
+ 
+-  The 12DoF lower-body policy needs to learn forward steps before it can survive
+-  foothold gaps. Keep the first retraining stage dominated by flat ground and
+-  gentle slopes, with moderate stairs as a foot-clearance signal.
++  Learn a stable bilateral gait on simple terrain before adding gaps and boxes.
+   """
+   return TerrainGeneratorCfg(
+     size=(8.0, 8.0),
+     border_width=20.0,
+-    num_rows=6,
++    num_rows=5,
+     num_cols=3,
+     curriculum=True,
+     sub_terrains={
+-      "flat": flat(proportion=0.50),
+-      "gentle_up_slope": hf_pyramid_slope(
+-        proportion=0.35,
+-        slope_range=(0.0, 0.25),
+-        platform_width=2.0,
++      "flat": flat(proportion=0.70),
++      "low_up_stairs": open_stairs(
++        proportion=0.15,
++        step_height_range=(0.020, 0.080),
++        step_width_range=(0.75, 1.05),
+       ),
+-      "low_open_stairs": open_stairs(
++      "low_down_stairs": open_stairs(
+         proportion=0.15,
+-        step_height_range=(0.040, 0.140),
+-        step_width_range=(0.65, 0.95),
++        step_height_range=(0.020, 0.080),
++        step_width_range=(0.75, 1.05),
++        inverted=True,
+       ),
+     },
+     add_lights=True,
+@@ -482,26 +482,26 @@ def unitree_g1_12dof_easy_discontinuous_env_cfg(
+ 
+   cfg.rewards["pose"].params["std_standing"] = {".*": 0.05}
+   cfg.rewards["pose"].params["std_walking"] = {
+-    r".*hip_pitch.*": 0.70,
+-    r".*hip_roll.*": 0.25,
+-    r".*hip_yaw.*": 0.20,
+-    r".*knee.*": 0.85,
+-    r".*ankle_pitch.*": 0.45,
+-    r".*ankle_roll.*": 0.16,
++    r".*hip_pitch.*": 0.60,
++    r".*hip_roll.*": 0.16,
++    r".*hip_yaw.*": 0.12,
++    r".*knee.*": 0.55,
++    r".*ankle_pitch.*": 0.35,
++    r".*ankle_roll.*": 0.10,
+   }
+   cfg.rewards["pose"].params["std_running"] = {
+-    r".*hip_pitch.*": 0.90,
+-    r".*hip_roll.*": 0.30,
+-    r".*hip_yaw.*": 0.25,
+-    r".*knee.*": 1.00,
+-    r".*ankle_pitch.*": 0.55,
+-    r".*ankle_roll.*": 0.20,
++    r".*hip_pitch.*": 0.75,
++    r".*hip_roll.*": 0.20,
++    r".*hip_yaw.*": 0.16,
++    r".*knee.*": 0.70,
++    r".*ankle_pitch.*": 0.45,
++    r".*ankle_roll.*": 0.13,
+   }
+ 
+   twist_cmd = cfg.commands["twist"]
+   assert isinstance(twist_cmd, UniformVelocityCommandCfg)
+   twist_cmd.heading_command = False
+-  twist_cmd.ranges.lin_vel_x = (0.45, 0.90)
++  twist_cmd.ranges.lin_vel_x = (0.30, 0.52)
+   twist_cmd.ranges.lin_vel_y = (0.0, 0.0)
+   twist_cmd.ranges.ang_vel_z = (0.0, 0.0)
+   twist_cmd.ranges.heading = None
+@@ -512,30 +512,97 @@ def unitree_g1_12dof_easy_discontinuous_env_cfg(
+   twist_cmd.resampling_time_range = (4.0, 7.0)
+   if "push_robot" in cfg.events:
+     cfg.events.pop("push_robot")
++  cfg.events["reset_base"].params["pose_range"].update(
++    {
++      "x": (-0.05, 0.05),
++      "y": (0.0, 0.0),
++      "yaw": (0.0, 0.0),
++    }
++  )
++  cfg.events["reset_robot_joints"].params["position_range"] = (-0.03, 0.03)
++  cfg.events["reset_robot_joints"].params["velocity_range"] = (-0.05, 0.05)
++  cfg.curriculum["terrain_levels"] = CurriculumTermCfg(
++    func=mdp.terrain_levels_forward_vel,
++    params={
++      "command_name": "twist",
++      "success_lateral_tolerance": 0.22,
++      "failure_lateral_tolerance": 0.50,
++    },
++  )
+   if "command_vel" in cfg.curriculum:
+     cfg.curriculum["command_vel"].params["velocity_stages"] = [
+-      {"step": 0, "lin_vel_x": (0.45, 0.75), "lin_vel_y": (0.0, 0.0), "ang_vel_z": (0.0, 0.0)},
+-      {"step": 10_000_000, "lin_vel_x": (0.45, 0.85), "lin_vel_y": (0.0, 0.0), "ang_vel_z": (0.0, 0.0)},
++      {"step": 0, "lin_vel_x": (0.30, 0.48), "lin_vel_y": (0.0, 0.0), "ang_vel_z": (0.0, 0.0)},
++      {"step": 10_000_000, "lin_vel_x": (0.34, 0.55), "lin_vel_y": (0.0, 0.0), "ang_vel_z": (0.0, 0.0)},
+     ]
+ 
+   cfg.rewards["track_linear_velocity"].weight = 6.0
+-  cfg.rewards["track_linear_velocity"].params["std"] = 0.22
+-  cfg.rewards["track_angular_velocity"].weight = 0.4
++  cfg.rewards["track_linear_velocity"].params["std"] = 0.28
++  cfg.rewards["track_angular_velocity"].weight = 3.5
++  cfg.rewards["track_angular_velocity"].params["std"] = 0.25
++  cfg.rewards["forward_heading_alignment"] = RewardTermCfg(
++    func=mdp.forward_heading_alignment,
++    weight=4.0,
++    params={
++      "std": 0.35,
++      "command_name": "twist",
++      "command_threshold": 0.10,
++    },
++  )
++  cfg.rewards["lateral_drift"] = RewardTermCfg(
++    func=mdp.lateral_drift_cost,
++    weight=-22.0,
++    params={
++      "tolerance": 0.15,
++      "command_name": "twist",
++      "command_threshold": 0.10,
++    },
++  )
++  cfg.rewards["lateral_velocity"] = RewardTermCfg(
++    func=mdp.lateral_velocity_cost,
++    weight=-12.0,
++    params={
++      "command_name": "twist",
++      "command_threshold": 0.10,
++      "asset_cfg": SceneEntityCfg("robot", body_names=("pelvis",)),
++    },
++  )
++  cfg.rewards["pelvis_height_floor"] = RewardTermCfg(
++    func=mdp.root_height_floor_cost,
++    weight=-25.0,
++    params={
++      "minimum_height": 0.70,
++      "command_name": "twist",
++      "command_threshold": 0.10,
++      "asset_cfg": SceneEntityCfg("robot", body_names=("pelvis",)),
++    },
++  )
+   cfg.rewards["upright"].weight = 0.8
+-  cfg.rewards["pose"].weight = 0.25
+-  cfg.rewards["air_time"].weight = 0.6
++  cfg.rewards["pose"].weight = 0.70
++  cfg.rewards["body_ang_vel"].weight = -0.08
++  cfg.rewards["angular_momentum"].weight = -0.04
++  cfg.rewards["air_time"].weight = 0.85
+   cfg.rewards["air_time"].params["command_threshold"] = 0.10
+   cfg.rewards["air_time"].params["threshold_min"] = 0.08
+-  cfg.rewards["air_time"].params["threshold_max"] = 0.46
++  cfg.rewards["air_time"].params["threshold_max"] = 0.36
+   cfg.rewards["foot_clearance"].weight = -0.20
+-  cfg.rewards["foot_clearance"].params["target_height"] = 0.16
+-  cfg.rewards["foot_swing_height"].weight = -0.8
+-  cfg.rewards["foot_swing_height"].params["target_height"] = 0.16
+-  cfg.rewards["foot_slip"].weight = -0.35
+-  cfg.rewards["action_rate_l2"].weight = -0.015
++  cfg.rewards["foot_clearance"].params["target_height"] = 0.12
++  cfg.rewards["foot_swing_height"].weight = -0.7
++  cfg.rewards["foot_swing_height"].params["target_height"] = 0.12
++  cfg.rewards["foot_slip"].weight = -0.6
++  cfg.rewards["soft_landing"].weight = -0.00004
++  cfg.rewards["action_rate_l2"].weight = -0.035
+   cfg.rewards["alternating_foot_contacts"] = RewardTermCfg(
+     func=mdp.alternating_foot_contacts,
+-    weight=1.0,
++    weight=3.0,
++    params={
++      "sensor_name": "feet_ground_contact",
++      "command_name": "twist",
++      "command_threshold": 0.10,
++    },
++  )
++  cfg.rewards["alternating_foot_swings"] = RewardTermCfg(
++    func=mdp.alternating_foot_swings,
++    weight=5.0,
+     params={
+       "sensor_name": "feet_ground_contact",
+       "command_name": "twist",
+@@ -543,12 +610,180 @@ def unitree_g1_12dof_easy_discontinuous_env_cfg(
+     },
+   )
+   foot_site_cfg = SceneEntityCfg("robot", site_names=("left_foot", "right_foot"))
++  foot_body_cfg = SceneEntityCfg(
++    "robot", body_names=("left_ankle_roll_link", "right_ankle_roll_link")
++  )
++  knee_joint_cfg = SceneEntityCfg(
++    "robot", joint_names=("left_knee_joint", "right_knee_joint")
++  )
++  hip_roll_joint_cfg = SceneEntityCfg(
++    "robot", joint_names=("left_hip_roll_joint", "right_hip_roll_joint")
++  )
++  hip_yaw_joint_cfg = SceneEntityCfg(
++    "robot", joint_names=("left_hip_yaw_joint", "right_hip_yaw_joint")
++  )
++  ankle_roll_joint_cfg = SceneEntityCfg(
++    "robot", joint_names=("left_ankle_roll_joint", "right_ankle_roll_joint")
++  )
++  cfg.rewards["foot_lateral_separation"] = RewardTermCfg(
++    func=mdp.foot_lateral_separation_cost,
++    weight=-150.0,
++    params={
++      "min_width": 0.14,
++      "max_width": 0.26,
++      "asset_cfg": foot_site_cfg,
++      "command_name": "twist",
++      "command_threshold": 0.10,
++    },
++  )
++  cfg.rewards["support_foot_flatness"] = RewardTermCfg(
++    func=mdp.support_foot_flatness_cost,
++    weight=-4.0,
++    params={
++      "sensor_name": "feet_ground_contact",
++      "asset_cfg": foot_body_cfg,
++      "command_name": "twist",
++      "command_threshold": 0.10,
++    },
++  )
++  cfg.rewards["support_foot_ang_vel"] = RewardTermCfg(
++    func=mdp.support_foot_angular_velocity_cost,
++    weight=-0.03,
++    params={
++      "sensor_name": "feet_ground_contact",
++      "asset_cfg": foot_body_cfg,
++      "command_name": "twist",
++      "command_threshold": 0.10,
++    },
++  )
++  cfg.rewards["knee_bend_range"] = RewardTermCfg(
++    func=mdp.joint_position_range_cost,
++    weight=-6.0,
++    params={
++      "min_value": 0.15,
++      "max_value": 0.95,
++      "asset_cfg": knee_joint_cfg,
++      "command_name": "twist",
++      "command_threshold": 0.10,
++      "log_prefix": "knee_bend",
++    },
++  )
++  cfg.rewards["hip_roll_range"] = RewardTermCfg(
++    func=mdp.joint_position_range_cost,
++    weight=-12.0,
++    params={
++      "min_value": -0.18,
++      "max_value": 0.18,
++      "asset_cfg": hip_roll_joint_cfg,
++      "command_name": "twist",
++      "command_threshold": 0.10,
++      "log_prefix": "hip_roll",
++    },
++  )
++  cfg.rewards["hip_yaw_range"] = RewardTermCfg(
++    func=mdp.joint_position_range_cost,
++    weight=-8.0,
++    params={
++      "min_value": -0.18,
++      "max_value": 0.18,
++      "asset_cfg": hip_yaw_joint_cfg,
++      "command_name": "twist",
++      "command_threshold": 0.10,
++      "log_prefix": "hip_yaw",
++    },
++  )
++  cfg.rewards["ankle_roll_range"] = RewardTermCfg(
++    func=mdp.joint_position_range_cost,
++    weight=-8.0,
++    params={
++      "min_value": -0.14,
++      "max_value": 0.14,
++      "asset_cfg": ankle_roll_joint_cfg,
++      "command_name": "twist",
++      "command_threshold": 0.10,
++      "log_prefix": "ankle_roll",
++    },
++  )
++  cfg.rewards["feet_height_in_air"] = RewardTermCfg(
++    func=mdp.feet_height_in_air,
++    weight=0.4,
++    params={
++      "sensor_name": "feet_ground_contact",
++      "height_sensor_name": "foot_height_scan",
++      "target_height": 0.12,
++      "command_name": "twist",
++      "command_threshold": 0.10,
++    },
++  )
++  cfg.rewards["left_foot_air_time"] = RewardTermCfg(
++    func=mdp.single_foot_air_time,
++    weight=2.2,
++    params={
++      "sensor_name": "feet_ground_contact",
++      "foot_index": 0,
++      "threshold_min": 0.10,
++      "threshold_max": 0.36,
++      "command_name": "twist",
++      "command_threshold": 0.10,
++      "log_prefix": "left_foot",
++    },
++  )
++  cfg.rewards["right_foot_air_time"] = RewardTermCfg(
++    func=mdp.single_foot_air_time,
++    weight=1.4,
++    params={
++      "sensor_name": "feet_ground_contact",
++      "foot_index": 1,
++      "threshold_min": 0.10,
++      "threshold_max": 0.36,
++      "command_name": "twist",
++      "command_threshold": 0.10,
++      "log_prefix": "right_foot",
++    },
++  )
++  cfg.rewards["left_foot_height_in_air"] = RewardTermCfg(
++    func=mdp.single_foot_height_in_air,
++    weight=2.2,
++    params={
++      "sensor_name": "feet_ground_contact",
++      "height_sensor_name": "foot_height_scan",
++      "foot_index": 0,
++      "target_height": 0.12,
++      "command_name": "twist",
++      "command_threshold": 0.10,
++      "log_prefix": "left_foot",
++    },
++  )
++  cfg.rewards["right_foot_height_in_air"] = RewardTermCfg(
++    func=mdp.single_foot_height_in_air,
++    weight=1.4,
++    params={
++      "sensor_name": "feet_ground_contact",
++      "height_sensor_name": "foot_height_scan",
++      "foot_index": 1,
++      "target_height": 0.12,
++      "command_name": "twist",
++      "command_threshold": 0.10,
++      "log_prefix": "right_foot",
++    },
++  )
++  cfg.rewards["feet_swing_height_symmetry"] = RewardTermCfg(
++    func=mdp.feet_swing_height_symmetry,
++    weight=-18.0,
++    params={
++      "sensor_name": "feet_ground_contact",
++      "height_sensor_name": "foot_height_scan",
++      "target_height": 0.12,
++      "command_name": "twist",
++      "command_threshold": 0.10,
++    },
++  )
+   cfg.rewards["sagittal_step_landing"] = RewardTermCfg(
+     func=mdp.sagittal_step_landing,
+-    weight=2.2,
++    weight=2.0,
+     params={
+       "sensor_name": "feet_ground_contact",
+-      "pass_margin": 0.10,
++      "pass_margin": 0.08,
+       "asset_cfg": foot_site_cfg,
+       "command_name": "twist",
+       "command_threshold": 0.10,
+@@ -556,7 +791,7 @@ def unitree_g1_12dof_easy_discontinuous_env_cfg(
+   )
+   cfg.rewards["sagittal_foot_order_switch"] = RewardTermCfg(
+     func=mdp.sagittal_foot_order_switch,
+-    weight=1.2,
++    weight=4.0,
+     params={
+       "deadband": 0.08,
+       "asset_cfg": foot_site_cfg,
+@@ -566,10 +801,10 @@ def unitree_g1_12dof_easy_discontinuous_env_cfg(
+   )
+   cfg.rewards["sagittal_foot_order_stall"] = RewardTermCfg(
+     func=mdp.sagittal_foot_order_stall,
+-    weight=-2.0,
++    weight=-5.0,
+     params={
+       "deadband": 0.08,
+-      "max_same_order_time": 0.90,
++      "max_same_order_time": 0.60,
+       "asset_cfg": foot_site_cfg,
+       "command_name": "twist",
+       "command_threshold": 0.10,
+@@ -577,9 +812,9 @@ def unitree_g1_12dof_easy_discontinuous_env_cfg(
+   )
+   cfg.rewards["sagittal_foot_separation"] = RewardTermCfg(
+     func=mdp.sagittal_foot_separation_cost,
+-    weight=-12.0,
++    weight=-8.0,
+     params={
+-      "min_separation": 0.16,
++      "min_separation": 0.18,
+       "asset_cfg": foot_site_cfg,
+       "command_name": "twist",
+       "command_threshold": 0.10,
+@@ -587,10 +822,10 @@ def unitree_g1_12dof_easy_discontinuous_env_cfg(
+   )
+   cfg.rewards["sagittal_stride_centering"] = RewardTermCfg(
+     func=mdp.sagittal_stride_centering_cost,
+-    weight=-8.0,
++    weight=-12.0,
+     params={
+-      "center_target": -0.02,
+-      "center_tolerance": 0.04,
++      "center_target": 0.0,
++      "center_tolerance": 0.03,
+       "asset_cfg": foot_site_cfg,
+       "command_name": "twist",
+       "command_threshold": 0.10,
+@@ -598,7 +833,7 @@ def unitree_g1_12dof_easy_discontinuous_env_cfg(
+   )
+   cfg.rewards["sagittal_front_rear_split"] = RewardTermCfg(
+     func=mdp.sagittal_front_rear_split_cost,
+-    weight=-10.0,
++    weight=-7.0,
+     params={
+       "min_front_x": 0.06,
+       "max_rear_x": -0.06,
+@@ -607,28 +842,70 @@ def unitree_g1_12dof_easy_discontinuous_env_cfg(
+       "command_threshold": 0.10,
+     },
+   )
++  cfg.rewards["sagittal_foot_bounds"] = RewardTermCfg(
++    func=mdp.sagittal_foot_bounds_cost,
++    weight=-8.0,
++    params={
++      "min_x": -0.20,
++      "max_x": 0.20,
++      "asset_cfg": foot_site_cfg,
++      "command_name": "twist",
++      "command_threshold": 0.10,
++    },
++  )
+   cfg.rewards["feet_air_time_limit"] = RewardTermCfg(
+     func=mdp.feet_air_time_limit,
+     weight=-3.0,
+     params={
+       "sensor_name": "feet_ground_contact",
+-      "max_air_time": 0.50,
++      "max_air_time": 0.36,
+       "command_name": "twist",
+       "command_threshold": 0.10,
+     },
+   )
+   cfg.rewards["feet_air_time_symmetry"] = RewardTermCfg(
+     func=mdp.feet_air_time_symmetry,
+-    weight=-1.0,
++    weight=-18.0,
++    params={
++      "sensor_name": "feet_ground_contact",
++      "command_name": "twist",
++      "command_threshold": 0.10,
++    },
++  )
++  cfg.rewards["feet_contact_time_symmetry"] = RewardTermCfg(
++    func=mdp.feet_contact_time_symmetry,
++    weight=-12.0,
++    params={
++      "sensor_name": "feet_ground_contact",
++      "command_name": "twist",
++      "command_threshold": 0.10,
++    },
++  )
++  cfg.rewards["foot_contact_stall"] = RewardTermCfg(
++    func=mdp.foot_contact_stall_cost,
++    weight=-10.0,
+     params={
+       "sensor_name": "feet_ground_contact",
++      "max_contact_time": 0.60,
++      "foot_weights": (1.0, 1.5),
++      "command_name": "twist",
++      "command_threshold": 0.10,
++    },
++  )
++  cfg.rewards["step_cadence_limit"] = RewardTermCfg(
++    func=mdp.step_cadence_limit,
++    weight=-2.0,
++    params={
++      "sensor_name": "feet_ground_contact",
++      "max_landings_per_second": 5.0,
++      "warmup_time": 0.6,
+       "command_name": "twist",
+       "command_threshold": 0.10,
+     },
+   )
+   cfg.rewards["no_flight_phase"] = RewardTermCfg(
+     func=mdp.no_flight_phase,
+-    weight=-0.8,
++    weight=-8.0,
+     params={
+       "sensor_name": "feet_ground_contact",
+       "command_name": "twist",
+@@ -642,16 +919,36 @@ def unitree_g1_12dof_easy_discontinuous_env_cfg(
+   cfg.terminations["pelvis_too_low"] = TerminationTermCfg(
+     func=envs_mdp.root_height_below_minimum,
+     params={
+-      "minimum_height": 0.55,
++      "minimum_height": 0.62,
++      "asset_cfg": SceneEntityCfg("robot", body_names=("pelvis",)),
++    },
++    time_out=False,
++  )
++  cfg.terminations["lateral_deviation"] = TerminationTermCfg(
++    func=mdp.lateral_deviation_above,
++    params={
++      "maximum_deviation": 0.30,
+       "asset_cfg": SceneEntityCfg("robot", body_names=("pelvis",)),
+     },
+     time_out=False,
+   )
++  cfg.terminations["right_foot_contact_stall"] = TerminationTermCfg(
++    func=mdp.foot_contact_time_above,
++    params={
++      "sensor_name": "feet_ground_contact",
++      "foot_index": 1,
++      "maximum_contact_time": 1.20,
++      "minimum_episode_time": 0.60,
++      "command_name": "twist",
++      "command_threshold": 0.10,
++    },
++    time_out=False,
++  )
+   for obs_group in cfg.observations.values():
+     obs_group.nan_policy = "sanitize"
+ 
+   if play:
+-    twist_cmd.ranges.lin_vel_x = (0.45, 0.45)
++    twist_cmd.ranges.lin_vel_x = (0.40, 0.40)
+     twist_cmd.ranges.lin_vel_y = (0.0, 0.0)
+     twist_cmd.ranges.ang_vel_z = (0.0, 0.0)
+ 
+diff --git a/src/mjlab/tasks/velocity/mdp/curriculums.py b/src/mjlab/tasks/velocity/mdp/curriculums.py
+index b2487ebf..2dc4b4e4 100644
+--- a/src/mjlab/tasks/velocity/mdp/curriculums.py
++++ b/src/mjlab/tasks/velocity/mdp/curriculums.py
+@@ -80,6 +80,67 @@ def terrain_levels_vel(
+   return result
+ 
+ 
++def terrain_levels_forward_vel(
++  env: ManagerBasedRlEnv,
++  env_ids: torch.Tensor,
++  command_name: str,
++  success_lateral_tolerance: float,
++  failure_lateral_tolerance: float,
++  asset_cfg: SceneEntityCfg = _DEFAULT_SCENE_CFG,
++) -> dict[str, torch.Tensor]:
++  """Terrain curriculum that only rewards forward progress in the lane."""
++  asset: Entity = env.scene[asset_cfg.name]
++
++  terrain = env.scene.terrain
++  assert terrain is not None
++  terrain_generator = terrain.cfg.terrain_generator
++  assert terrain_generator is not None
++
++  command = env.command_manager.get_command(command_name)
++  assert command is not None
++
++  displacement = asset.data.root_link_pos_w[env_ids, :2] - env.scene.env_origins[
++    env_ids, :2
++  ]
++  forward_progress = displacement[:, 0]
++  lateral_drift = torch.abs(displacement[:, 1])
++
++  move_up = (forward_progress > terrain_generator.size[0] / 2) & (
++    lateral_drift < success_lateral_tolerance
++  )
++
++  expected_progress = (
++    torch.clamp(command[env_ids, 0], min=0.0) * env.max_episode_length_s * 0.5
++  )
++  move_down = (forward_progress < expected_progress) | (
++    lateral_drift > failure_lateral_tolerance
++  )
++  move_down *= ~move_up
++
++  terrain.update_env_origins(env_ids, move_up, move_down)
++
++  levels = terrain.terrain_levels.float()
++  result: dict[str, torch.Tensor] = {
++    "mean": torch.mean(levels),
++    "max": torch.max(levels),
++    "forward_progress": torch.mean(forward_progress),
++    "lateral_drift": torch.mean(lateral_drift),
++  }
++
++  sub_terrain_names = list(terrain_generator.sub_terrains.keys())
++  terrain_origins = terrain.terrain_origins
++  assert terrain_origins is not None
++  num_cols = terrain_origins.shape[1]
++  if num_cols == len(sub_terrain_names):
++    types = terrain.terrain_types
++    for i, name in enumerate(sub_terrain_names):
++      mask = types == i
++      if mask.any():
++        result[name] = torch.mean(levels[mask])
++
++  return result
++
++
+ def commands_vel(
+   env: ManagerBasedRlEnv,
+   env_ids: torch.Tensor,
+diff --git a/src/mjlab/tasks/velocity/mdp/rewards.py b/src/mjlab/tasks/velocity/mdp/rewards.py
+index cde01032..fc021a88 100644
+--- a/src/mjlab/tasks/velocity/mdp/rewards.py
++++ b/src/mjlab/tasks/velocity/mdp/rewards.py
+@@ -253,6 +253,83 @@ def _command_active(
+   return ((linear_norm + angular_norm) > command_threshold).float()
+ 
+ 
++def forward_heading_alignment(
++  env: ManagerBasedRlEnv,
++  std: float,
++  command_name: str | None = None,
++  command_threshold: float = 0.05,
++  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++) -> torch.Tensor:
++  """Reward keeping the pelvis forward axis aligned with world +X."""
++  asset: Entity = env.scene[asset_cfg.name]
++  forward_local = torch.zeros((env.num_envs, 3), device=env.device)
++  forward_local[:, 0] = 1.0
++  forward_w = quat_apply(asset.data.root_link_quat_w, forward_local)
++
++  lateral_error = torch.square(forward_w[:, 1])
++  backward_error = torch.square(torch.relu(-forward_w[:, 0]))
++  env.extras["log"]["Metrics/heading_forward_x_mean"] = torch.mean(forward_w[:, 0])
++  env.extras["log"]["Metrics/heading_abs_y_mean"] = torch.mean(
++    torch.abs(forward_w[:, 1])
++  )
++  return torch.exp(-(lateral_error + backward_error) / std**2) * _command_active(
++    env, command_name, command_threshold
++  )
++
++
++def lateral_drift_cost(
++  env: ManagerBasedRlEnv,
++  tolerance: float,
++  command_name: str | None = None,
++  command_threshold: float = 0.05,
++  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++) -> torch.Tensor:
++  """Penalize walking around terrain by drifting away from the spawn lane."""
++  asset: Entity = env.scene[asset_cfg.name]
++  y_offset = asset.data.root_link_pos_w[:, 1] - env.scene.env_origins[:, 1]
++  excess = torch.relu(torch.abs(y_offset) - tolerance)
++  env.extras["log"]["Metrics/lateral_drift_mean"] = torch.mean(torch.abs(y_offset))
++  env.extras["log"]["Metrics/lateral_drift_excess"] = torch.mean(excess)
++  return torch.square(excess) * _command_active(
++    env, command_name, command_threshold
++  )
++
++
++def lateral_velocity_cost(
++  env: ManagerBasedRlEnv,
++  command_name: str | None = None,
++  command_threshold: float = 0.05,
++  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++) -> torch.Tensor:
++  """Penalize side velocity while the command asks for straight walking."""
++  asset: Entity = env.scene[asset_cfg.name]
++  lateral_vel = asset.data.root_link_lin_vel_b[:, 1]
++  env.extras["log"]["Metrics/lateral_velocity_abs_mean"] = torch.mean(
++    torch.abs(lateral_vel)
++  )
++  return torch.square(lateral_vel) * _command_active(
++    env, command_name, command_threshold
++  )
++
++
++def root_height_floor_cost(
++  env: ManagerBasedRlEnv,
++  minimum_height: float,
++  command_name: str | None = None,
++  command_threshold: float = 0.05,
++  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++) -> torch.Tensor:
++  """Penalize crouching below a useful walking pelvis height."""
++  asset: Entity = env.scene[asset_cfg.name]
++  height = asset.data.root_link_pos_w[:, 2]
++  shortfall = torch.relu(minimum_height - height)
++  env.extras["log"]["Metrics/root_height_mean"] = torch.mean(height)
++  env.extras["log"]["Metrics/root_height_shortfall"] = torch.mean(shortfall)
++  return torch.square(shortfall) * _command_active(
++    env, command_name, command_threshold
++  )
++
++
+ def feet_air_time_limit(
+   env: ManagerBasedRlEnv,
+   sensor_name: str,
+@@ -274,6 +351,106 @@ def feet_air_time_limit(
+   return cost * _command_active(env, command_name, command_threshold)
+ 
+ 
++def foot_contact_stall_cost(
++  env: ManagerBasedRlEnv,
++  sensor_name: str,
++  max_contact_time: float,
++  foot_weights: tuple[float, float] = (1.0, 1.0),
++  command_name: str | None = None,
++  command_threshold: float = 0.05,
++) -> torch.Tensor:
++  """Penalize a foot staying planted too long during commanded walking."""
++  sensor: ContactSensor = env.scene[sensor_name]
++  current_contact_time = sensor.data.current_contact_time
++  assert current_contact_time is not None
++  weights = torch.tensor(foot_weights, device=env.device, dtype=torch.float32)
++  excess = torch.relu(current_contact_time - max_contact_time)
++  env.extras["log"]["Metrics/left_foot_contact_time_mean"] = torch.mean(
++    current_contact_time[:, 0]
++  )
++  env.extras["log"]["Metrics/right_foot_contact_time_mean"] = torch.mean(
++    current_contact_time[:, 1]
++  )
++  env.extras["log"]["Metrics/right_foot_contact_stall"] = torch.mean(excess[:, 1])
++  return torch.sum(torch.square(excess) * weights, dim=1) * _command_active(
++    env, command_name, command_threshold
++  )
++
++
++class feet_contact_time_symmetry:
++  """Penalize one foot monopolizing stance time over an episode."""
++
++  def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
++    del cfg
++    self._accum_contact = torch.zeros((env.num_envs, 2), device=env.device)
++    self._active_time = torch.zeros(env.num_envs, device=env.device)
++    self._step_dt = env.step_dt
++
++  def __call__(
++    self,
++    env: ManagerBasedRlEnv,
++    sensor_name: str,
++    command_name: str | None = None,
++    command_threshold: float = 0.05,
++  ) -> torch.Tensor:
++    sensor: ContactSensor = env.scene[sensor_name]
++    assert sensor.data.found is not None
++    active = _command_active(env, command_name, command_threshold)
++    in_contact = (sensor.data.found > 0).float()
++    self._accum_contact += in_contact * active.unsqueeze(1) * self._step_dt
++    self._active_time += active * self._step_dt
++
++    denom = torch.clamp(self._active_time, min=self._step_dt)
++    left = self._accum_contact[:, 0] / denom
++    right = self._accum_contact[:, 1] / denom
++    imbalance = torch.abs(left - right)
++    env.extras["log"]["Metrics/left_stance_fraction_episode"] = torch.mean(left)
++    env.extras["log"]["Metrics/right_stance_fraction_episode"] = torch.mean(right)
++    env.extras["log"]["Metrics/stance_fraction_imbalance"] = torch.mean(imbalance)
++    return torch.square(imbalance) * active
++
++  def reset(self, env_ids: torch.Tensor) -> None:
++    self._accum_contact[env_ids] = 0.0
++    self._active_time[env_ids] = 0.0
++
++
++class step_cadence_limit:
++  """Penalize very rapid footfalls that produce a hurried, choppy gait."""
++
++  def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
++    del cfg
++    self._landing_count = torch.zeros(env.num_envs, device=env.device)
++    self._active_time = torch.zeros(env.num_envs, device=env.device)
++    self._step_dt = env.step_dt
++
++  def __call__(
++    self,
++    env: ManagerBasedRlEnv,
++    sensor_name: str,
++    max_landings_per_second: float,
++    warmup_time: float = 0.5,
++    command_name: str | None = None,
++    command_threshold: float = 0.05,
++  ) -> torch.Tensor:
++    sensor: ContactSensor = env.scene[sensor_name]
++    first_contact = sensor.compute_first_contact(dt=self._step_dt)
++    active = _command_active(env, command_name, command_threshold)
++    self._landing_count += torch.sum(first_contact.float(), dim=1) * active
++    self._active_time += active * self._step_dt
++
++    denom = torch.clamp(self._active_time, min=self._step_dt)
++    cadence = self._landing_count / denom
++    excess = torch.relu(cadence - max_landings_per_second)
++    warm = (self._active_time > warmup_time).float()
++    env.extras["log"]["Metrics/landing_cadence_mean"] = torch.mean(cadence * warm)
++    env.extras["log"]["Metrics/landing_cadence_excess"] = torch.mean(excess * warm)
++    return torch.square(excess) * active * warm
++
++  def reset(self, env_ids: torch.Tensor) -> None:
++    self._landing_count[env_ids] = 0.0
++    self._active_time[env_ids] = 0.0
++
++
+ def no_flight_phase(
+   env: ManagerBasedRlEnv,
+   sensor_name: str,
+@@ -289,6 +466,82 @@ def no_flight_phase(
+   return both_air * _command_active(env, command_name, command_threshold)
+ 
+ 
++def single_foot_air_time(
++  env: ManagerBasedRlEnv,
++  sensor_name: str,
++  foot_index: int,
++  threshold_min: float,
++  threshold_max: float,
++  command_name: str | None = None,
++  command_threshold: float = 0.05,
++  log_prefix: str = "single_foot",
++) -> torch.Tensor:
++  """Reward one specified foot for entering a healthy swing-time range."""
++  sensor: ContactSensor = env.scene[sensor_name]
++  current_air_time = sensor.data.current_air_time
++  assert current_air_time is not None
++  foot_air_time = current_air_time[:, foot_index]
++  in_range = (foot_air_time > threshold_min) & (foot_air_time < threshold_max)
++  env.extras["log"][f"Metrics/{log_prefix}_air_time_mean"] = torch.mean(
++    foot_air_time
++  )
++  env.extras["log"][f"Metrics/{log_prefix}_air_time_in_range"] = torch.mean(
++    in_range.float()
++  )
++  return in_range.float() * _command_active(env, command_name, command_threshold)
++
++
++def single_foot_height_in_air(
++  env: ManagerBasedRlEnv,
++  sensor_name: str,
++  height_sensor_name: str,
++  foot_index: int,
++  target_height: float,
++  command_name: str | None = None,
++  command_threshold: float = 0.05,
++  log_prefix: str = "single_foot",
++) -> torch.Tensor:
++  """Reward one specified foot for being lifted toward target height in swing."""
++  contact_sensor: ContactSensor = env.scene[sensor_name]
++  height_sensor: TerrainHeightSensor = env.scene[height_sensor_name]
++  assert contact_sensor.data.found is not None
++  in_air = (contact_sensor.data.found[:, foot_index] == 0).float()
++  foot_height = height_sensor.data.heights[:, foot_index]
++  height_fraction = torch.clamp(foot_height / target_height, min=0.0, max=1.0)
++  env.extras["log"][f"Metrics/{log_prefix}_height_mean"] = torch.mean(foot_height)
++  env.extras["log"][f"Metrics/{log_prefix}_air_rate"] = torch.mean(in_air)
++  return height_fraction * in_air * _command_active(
++    env, command_name, command_threshold
++  )
++
++
++def feet_height_in_air(
++  env: ManagerBasedRlEnv,
++  sensor_name: str,
++  height_sensor_name: str,
++  target_height: float,
++  command_name: str | None = None,
++  command_threshold: float = 0.05,
++) -> torch.Tensor:
++  """Reward swing feet for reaching useful terrain-clearance height."""
++  contact_sensor: ContactSensor = env.scene[sensor_name]
++  height_sensor: TerrainHeightSensor = env.scene[height_sensor_name]
++  assert contact_sensor.data.found is not None
++  in_air = (contact_sensor.data.found == 0).float()
++  foot_height = height_sensor.data.heights
++  height_fraction = torch.clamp(foot_height / target_height, min=0.0, max=1.0)
++  in_air_count = torch.clamp(torch.sum(in_air), min=1)
++  env.extras["log"]["Metrics/swing_foot_height_mean"] = (
++    torch.sum(foot_height * in_air) / in_air_count
++  )
++  env.extras["log"]["Metrics/swing_foot_height_fraction"] = (
++    torch.sum(height_fraction * in_air) / in_air_count
++  )
++  return torch.sum(height_fraction * in_air, dim=1) * _command_active(
++    env, command_name, command_threshold
++  )
++
++
+ class feet_air_time_symmetry:
+   """Penalize large left/right imbalance in accumulated swing time."""
+ 
+@@ -321,6 +574,49 @@ class feet_air_time_symmetry:
+     self._active_time[env_ids] = 0.0
+ 
+ 
++class feet_swing_height_symmetry:
++  """Penalize one foot dominating swing height over an episode."""
++
++  def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
++    del cfg
++    self._accum_height = torch.zeros((env.num_envs, 2), device=env.device)
++    self._active_time = torch.zeros(env.num_envs, device=env.device)
++    self._step_dt = env.step_dt
++
++  def __call__(
++    self,
++    env: ManagerBasedRlEnv,
++    sensor_name: str,
++    height_sensor_name: str,
++    target_height: float,
++    command_name: str | None = None,
++    command_threshold: float = 0.05,
++  ) -> torch.Tensor:
++    contact_sensor: ContactSensor = env.scene[sensor_name]
++    height_sensor: TerrainHeightSensor = env.scene[height_sensor_name]
++    assert contact_sensor.data.found is not None
++    active = _command_active(env, command_name, command_threshold)
++    in_air = (contact_sensor.data.found == 0).float()
++    height_fraction = torch.clamp(
++      height_sensor.data.heights / target_height, min=0.0, max=1.0
++    )
++    self._accum_height += height_fraction * in_air * active.unsqueeze(1) * self._step_dt
++    self._active_time += active * self._step_dt
++
++    denom = torch.clamp(self._active_time, min=self._step_dt)
++    left = self._accum_height[:, 0] / denom
++    right = self._accum_height[:, 1] / denom
++    imbalance = torch.abs(left - right)
++    env.extras["log"]["Metrics/left_swing_height_fraction_episode"] = torch.mean(left)
++    env.extras["log"]["Metrics/right_swing_height_fraction_episode"] = torch.mean(right)
++    env.extras["log"]["Metrics/swing_height_imbalance"] = torch.mean(imbalance)
++    return torch.square(imbalance) * active
++
++  def reset(self, env_ids: torch.Tensor) -> None:
++    self._accum_height[env_ids] = 0.0
++    self._active_time[env_ids] = 0.0
++
++
+ class alternating_foot_contacts:
+   """Reward touchdowns that alternate left and right feet."""
+ 
+@@ -367,9 +663,62 @@ class alternating_foot_contacts:
+     self._last_landing_foot[env_ids] = -1
+ 
+ 
++class alternating_foot_swings:
++  """Reward swing starts that alternate left and right feet."""
++
++  def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
++    del cfg
++    self._last_swing_foot = torch.full(
++      (env.num_envs,), -1, device=env.device, dtype=torch.long
++    )
++    self._prev_in_air = torch.zeros((env.num_envs, 2), device=env.device, dtype=torch.bool)
++
++  def __call__(
++    self,
++    env: ManagerBasedRlEnv,
++    sensor_name: str,
++    command_name: str | None = None,
++    command_threshold: float = 0.05,
++  ) -> torch.Tensor:
++    sensor: ContactSensor = env.scene[sensor_name]
++    assert sensor.data.found is not None
++    in_air = sensor.data.found == 0
++    first_air = in_air & ~self._prev_in_air
++    single_swing = torch.sum(first_air.float(), dim=1) == 1
++    swing_foot = torch.argmax(first_air.float(), dim=1)
++    has_previous = self._last_swing_foot >= 0
++    alternated = single_swing & has_previous & (swing_foot != self._last_swing_foot)
++    repeated = single_swing & has_previous & (swing_foot == self._last_swing_foot)
++
++    if torch.any(single_swing):
++      self._last_swing_foot[single_swing] = swing_foot[single_swing]
++    self._prev_in_air = in_air
++
++    active = _command_active(env, command_name, command_threshold)
++    swing_count = torch.clamp(single_swing.float().sum(), min=1)
++    env.extras["log"]["Metrics/alternating_swing_rate"] = (
++      alternated.float().sum() / swing_count
++    )
++    env.extras["log"]["Metrics/repeated_swing_rate"] = (
++      repeated.float().sum() / swing_count
++    )
++    return alternated.float() * active
++
++  def reset(self, env_ids: torch.Tensor) -> None:
++    self._last_swing_foot[env_ids] = -1
++    self._prev_in_air[env_ids] = False
++
++
+ def _foot_x_positions_b(
+   env: ManagerBasedRlEnv,
+   asset_cfg: SceneEntityCfg,
++) -> torch.Tensor:
++  return _foot_positions_b(env, asset_cfg)[:, :, 0]
++
++
++def _foot_positions_b(
++  env: ManagerBasedRlEnv,
++  asset_cfg: SceneEntityCfg,
+ ) -> torch.Tensor:
+   asset: Entity = env.scene[asset_cfg.name]
+   foot_pos_w = asset.data.site_pos_w[:, asset_cfg.site_ids, :]
+@@ -382,7 +731,108 @@ def _foot_x_positions_b(
+     root_quat_w.reshape(-1, 4),
+     rel_pos_w.reshape(-1, 3),
+   ).reshape(env.num_envs, rel_pos_w.shape[1], 3)
+-  return rel_pos_b[:, :, 0]
++  return rel_pos_b
++
++
++def foot_lateral_separation_cost(
++  env: ManagerBasedRlEnv,
++  min_width: float,
++  max_width: float | None,
++  asset_cfg: SceneEntityCfg,
++  command_name: str | None = None,
++  command_threshold: float = 0.05,
++) -> torch.Tensor:
++  """Penalize feet getting too close, too wide, or crossing laterally."""
++  foot_pos_b = _foot_positions_b(env, asset_cfg)
++  left_minus_right_y = foot_pos_b[:, 0, 1] - foot_pos_b[:, 1, 1]
++  shortfall = torch.relu(min_width - left_minus_right_y)
++  excess = (
++    torch.relu(left_minus_right_y - max_width)
++    if max_width is not None
++    else torch.zeros_like(shortfall)
++  )
++  crossing = left_minus_right_y < 0.0
++  env.extras["log"]["Metrics/foot_y_width_mean"] = torch.mean(left_minus_right_y)
++  env.extras["log"]["Metrics/foot_y_width_shortfall"] = torch.mean(shortfall)
++  env.extras["log"]["Metrics/foot_y_width_excess"] = torch.mean(excess)
++  env.extras["log"]["Metrics/foot_crossing_rate"] = torch.mean(crossing.float())
++  return (torch.square(shortfall) + torch.square(excess)) * _command_active(
++    env, command_name, command_threshold
++  )
++
++
++def support_foot_flatness_cost(
++  env: ManagerBasedRlEnv,
++  sensor_name: str,
++  asset_cfg: SceneEntityCfg,
++  command_name: str | None = None,
++  command_threshold: float = 0.05,
++) -> torch.Tensor:
++  """Penalize tilted support feet so landings use the sole, not the toe edge."""
++  asset: Entity = env.scene[asset_cfg.name]
++  sensor: ContactSensor = env.scene[sensor_name]
++  assert sensor.data.found is not None
++  in_contact = (sensor.data.found > 0).float()
++
++  local_up = torch.zeros((env.num_envs, len(asset_cfg.body_ids), 3), device=env.device)
++  local_up[:, :, 2] = 1.0
++  body_quat = asset.data.body_link_quat_w[:, asset_cfg.body_ids, :]
++  foot_up_w = quat_apply(
++    body_quat.reshape(-1, 4),
++    local_up.reshape(-1, 3),
++  ).reshape(env.num_envs, len(asset_cfg.body_ids), 3)
++
++  tilt = torch.sum(torch.square(foot_up_w[:, :, :2]), dim=-1)
++  cost = torch.sum(tilt * in_contact, dim=1)
++  contact_count = torch.clamp(torch.sum(in_contact), min=1)
++  env.extras["log"]["Metrics/support_foot_tilt_mean"] = (
++    torch.sum(torch.sqrt(tilt) * in_contact) / contact_count
++  )
++  return cost * _command_active(env, command_name, command_threshold)
++
++
++def support_foot_angular_velocity_cost(
++  env: ManagerBasedRlEnv,
++  sensor_name: str,
++  asset_cfg: SceneEntityCfg,
++  command_name: str | None = None,
++  command_threshold: float = 0.05,
++) -> torch.Tensor:
++  """Penalize twisting support feet after contact."""
++  asset: Entity = env.scene[asset_cfg.name]
++  sensor: ContactSensor = env.scene[sensor_name]
++  assert sensor.data.found is not None
++  in_contact = (sensor.data.found > 0).float()
++  foot_ang_vel = asset.data.body_link_ang_vel_w[:, asset_cfg.body_ids, :]
++  ang_vel_sq = torch.sum(torch.square(foot_ang_vel), dim=-1)
++  cost = torch.sum(ang_vel_sq * in_contact, dim=1)
++  contact_count = torch.clamp(torch.sum(in_contact), min=1)
++  env.extras["log"]["Metrics/support_foot_ang_vel_mean"] = (
++    torch.sum(torch.sqrt(ang_vel_sq) * in_contact) / contact_count
++  )
++  return cost * _command_active(env, command_name, command_threshold)
++
++
++def joint_position_range_cost(
++  env: ManagerBasedRlEnv,
++  min_value: float,
++  max_value: float,
++  asset_cfg: SceneEntityCfg,
++  command_name: str | None = None,
++  command_threshold: float = 0.05,
++  log_prefix: str = "joint_range",
++) -> torch.Tensor:
++  """Penalize selected joints outside a healthy range."""
++  asset: Entity = env.scene[asset_cfg.name]
++  joint_pos = asset.data.joint_pos[:, asset_cfg.joint_ids]
++  below = torch.relu(min_value - joint_pos)
++  above = torch.relu(joint_pos - max_value)
++  violation = below + above
++  env.extras["log"][f"Metrics/{log_prefix}_mean"] = torch.mean(joint_pos)
++  env.extras["log"][f"Metrics/{log_prefix}_violation"] = torch.mean(violation)
++  return torch.sum(torch.square(violation), dim=1) * _command_active(
++    env, command_name, command_threshold
++  )
+ 
+ 
+ class sagittal_step_landing:
+@@ -577,6 +1027,25 @@ def sagittal_front_rear_split_cost(
+   ) * _command_active(env, command_name, command_threshold)
+ 
+ 
++def sagittal_foot_bounds_cost(
++  env: ManagerBasedRlEnv,
++  min_x: float,
++  max_x: float,
++  asset_cfg: SceneEntityCfg,
++  command_name: str | None = None,
++  command_threshold: float = 0.05,
++) -> torch.Tensor:
++  """Penalize feet over-reaching too far ahead or behind the pelvis."""
++  foot_x_b = _foot_x_positions_b(env, asset_cfg)
++  under = torch.relu(min_x - foot_x_b)
++  over = torch.relu(foot_x_b - max_x)
++  env.extras["log"]["Metrics/foot_x_under_bound_mean"] = torch.mean(under)
++  env.extras["log"]["Metrics/foot_x_over_bound_mean"] = torch.mean(over)
++  return torch.sum(torch.square(under) + torch.square(over), dim=1) * _command_active(
++    env, command_name, command_threshold
++  )
++
++
+ def feet_clearance(
+   env: ManagerBasedRlEnv,
+   target_height: float,
+diff --git a/src/mjlab/tasks/velocity/mdp/terminations.py b/src/mjlab/tasks/velocity/mdp/terminations.py
+index c12665f4..ea8e60f7 100644
+--- a/src/mjlab/tasks/velocity/mdp/terminations.py
++++ b/src/mjlab/tasks/velocity/mdp/terminations.py
+@@ -97,3 +97,44 @@ def terrain_edge_reached(
+   at_edge &= env.episode_length_buf > 2
+ 
+   return at_edge
++
++
++def lateral_deviation_above(
++  env: ManagerBasedRlEnv,
++  maximum_deviation: float,
++  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
++) -> torch.Tensor:
++  """Terminate when the robot leaves the forward walking lane."""
++  asset: Entity = env.scene[asset_cfg.name]
++  lateral = torch.abs(asset.data.root_link_pos_w[:, 1] - env.scene.env_origins[:, 1])
++  out_of_lane = lateral > maximum_deviation
++  out_of_lane &= env.episode_length_buf > 2
++  return out_of_lane
++
++
++def foot_contact_time_above(
++  env: ManagerBasedRlEnv,
++  sensor_name: str,
++  foot_index: int,
++  maximum_contact_time: float,
++  minimum_episode_time: float = 0.0,
++  command_name: str | None = None,
++  command_threshold: float = 0.05,
++) -> torch.Tensor:
++  """Terminate if one foot refuses to lift during commanded walking."""
++  sensor: ContactSensor = env.scene[sensor_name]
++  current_contact_time = sensor.data.current_contact_time
++  assert current_contact_time is not None
++
++  done = current_contact_time[:, foot_index] > maximum_contact_time
++  if minimum_episode_time > 0.0:
++    done &= env.episode_length_buf * env.step_dt > minimum_episode_time
++
++  if command_name is not None:
++    command = env.command_manager.get_command(command_name)
++    if command is not None:
++      linear_norm = torch.norm(command[:, :2], dim=1)
++      angular_norm = torch.abs(command[:, 2])
++      done &= (linear_norm + angular_norm) > command_threshold
++
++  return done

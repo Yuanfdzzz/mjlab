@@ -80,6 +80,67 @@ def terrain_levels_vel(
   return result
 
 
+def terrain_levels_forward_vel(
+  env: ManagerBasedRlEnv,
+  env_ids: torch.Tensor,
+  command_name: str,
+  success_lateral_tolerance: float,
+  failure_lateral_tolerance: float,
+  asset_cfg: SceneEntityCfg = _DEFAULT_SCENE_CFG,
+) -> dict[str, torch.Tensor]:
+  """Terrain curriculum that only rewards forward progress in the lane."""
+  asset: Entity = env.scene[asset_cfg.name]
+
+  terrain = env.scene.terrain
+  assert terrain is not None
+  terrain_generator = terrain.cfg.terrain_generator
+  assert terrain_generator is not None
+
+  command = env.command_manager.get_command(command_name)
+  assert command is not None
+
+  displacement = asset.data.root_link_pos_w[env_ids, :2] - env.scene.env_origins[
+    env_ids, :2
+  ]
+  forward_progress = displacement[:, 0]
+  lateral_drift = torch.abs(displacement[:, 1])
+
+  move_up = (forward_progress > terrain_generator.size[0] / 2) & (
+    lateral_drift < success_lateral_tolerance
+  )
+
+  expected_progress = (
+    torch.clamp(command[env_ids, 0], min=0.0) * env.max_episode_length_s * 0.5
+  )
+  move_down = (forward_progress < expected_progress) | (
+    lateral_drift > failure_lateral_tolerance
+  )
+  move_down *= ~move_up
+
+  terrain.update_env_origins(env_ids, move_up, move_down)
+
+  levels = terrain.terrain_levels.float()
+  result: dict[str, torch.Tensor] = {
+    "mean": torch.mean(levels),
+    "max": torch.max(levels),
+    "forward_progress": torch.mean(forward_progress),
+    "lateral_drift": torch.mean(lateral_drift),
+  }
+
+  sub_terrain_names = list(terrain_generator.sub_terrains.keys())
+  terrain_origins = terrain.terrain_origins
+  assert terrain_origins is not None
+  num_cols = terrain_origins.shape[1]
+  if num_cols == len(sub_terrain_names):
+    types = terrain.terrain_types
+    for i, name in enumerate(sub_terrain_names):
+      mask = types == i
+      if mask.any():
+        result[name] = torch.mean(levels[mask])
+
+  return result
+
+
 def commands_vel(
   env: ManagerBasedRlEnv,
   env_ids: torch.Tensor,

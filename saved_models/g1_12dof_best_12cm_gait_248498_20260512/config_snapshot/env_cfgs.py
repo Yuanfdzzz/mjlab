@@ -143,7 +143,7 @@ def _g1_12dof_gait_terrains_cfg() -> TerrainGeneratorCfg:
     num_cols=5,
     curriculum=True,
     sub_terrains={
-      "flat": flat(proportion=0.44),
+      "flat": flat(proportion=0.50),
       "low_up_stairs": open_stairs(
         proportion=0.18,
         step_height_range=(0.020, 0.080),
@@ -156,62 +156,15 @@ def _g1_12dof_gait_terrains_cfg() -> TerrainGeneratorCfg:
         inverted=True,
       ),
       "mid_up_stairs": open_stairs(
-        proportion=0.18,
-        step_height_range=(0.085, 0.135),
+        proportion=0.14,
+        step_height_range=(0.080, 0.120),
         step_width_range=(0.70, 1.00),
       ),
       "mid_down_stairs": open_stairs(
-        proportion=0.08,
-        step_height_range=(0.060, 0.115),
+        proportion=0.06,
+        step_height_range=(0.050, 0.100),
         step_width_range=(0.70, 1.00),
         inverted=True,
-      ),
-    },
-    add_lights=True,
-  )
-
-
-def _g1_12dof_demo_discontinuous_terrains_cfg() -> TerrainGeneratorCfg:
-  """Dense random stair mix for play-mode gait inspection.
-
-  Training uses a curriculum grid; play mode should be a stress-test strip where
-  the robot may immediately meet flat, upward stairs, or downward stairs.
-  """
-  return TerrainGeneratorCfg(
-    size=(8.0, 8.0),
-    border_width=10.0,
-    num_rows=6,
-    num_cols=6,
-    curriculum=False,
-    difficulty_range=(0.55, 1.0),
-    sub_terrains={
-      "short_flat_break": flat(proportion=0.08),
-      "low_up_stairs": open_stairs(
-        proportion=0.18,
-        step_height_range=(0.020, 0.080),
-        step_width_range=(0.70, 1.00),
-      ),
-      "low_down_stairs": open_stairs(
-        proportion=0.16,
-        step_height_range=(0.020, 0.080),
-        step_width_range=(0.70, 1.00),
-        inverted=True,
-      ),
-      "mid_up_stairs": open_stairs(
-        proportion=0.24,
-        step_height_range=(0.085, 0.135),
-        step_width_range=(0.68, 0.95),
-      ),
-      "mid_down_stairs": open_stairs(
-        proportion=0.18,
-        step_height_range=(0.060, 0.115),
-        step_width_range=(0.68, 0.95),
-        inverted=True,
-      ),
-      "uneven_up_stairs": random_stairs(
-        proportion=0.16,
-        step_width=0.76,
-        step_height_range=(0.035, 0.120),
       ),
     },
     add_lights=True,
@@ -643,9 +596,9 @@ def unitree_g1_12dof_easy_discontinuous_env_cfg(
   cfg.rewards["air_time"].params["threshold_min"] = 0.08
   cfg.rewards["air_time"].params["threshold_max"] = 0.36
   cfg.rewards["foot_clearance"].weight = -0.20
-  cfg.rewards["foot_clearance"].params["target_height"] = 0.18
+  cfg.rewards["foot_clearance"].params["target_height"] = 0.16
   cfg.rewards["foot_swing_height"].weight = -0.7
-  cfg.rewards["foot_swing_height"].params["target_height"] = 0.18
+  cfg.rewards["foot_swing_height"].params["target_height"] = 0.16
   cfg.rewards["foot_slip"].weight = -0.6
   cfg.rewards["soft_landing"].weight = -0.00004
   cfg.rewards["action_rate_l2"].weight = -0.035
@@ -768,7 +721,7 @@ def unitree_g1_12dof_easy_discontinuous_env_cfg(
     params={
       "sensor_name": "feet_ground_contact",
       "height_sensor_name": "foot_height_scan",
-      "target_height": 0.18,
+      "target_height": 0.16,
       "command_name": "twist",
       "command_threshold": 0.10,
     },
@@ -788,7 +741,7 @@ def unitree_g1_12dof_easy_discontinuous_env_cfg(
   )
   cfg.rewards["right_foot_air_time"] = RewardTermCfg(
     func=mdp.single_foot_air_time,
-    weight=1.6,
+    weight=1.4,
     params={
       "sensor_name": "feet_ground_contact",
       "foot_index": 1,
@@ -806,7 +759,7 @@ def unitree_g1_12dof_easy_discontinuous_env_cfg(
       "sensor_name": "feet_ground_contact",
       "height_sensor_name": "foot_height_scan",
       "foot_index": 0,
-      "target_height": 0.18,
+      "target_height": 0.16,
       "command_name": "twist",
       "command_threshold": 0.10,
       "log_prefix": "left_foot",
@@ -814,12 +767,12 @@ def unitree_g1_12dof_easy_discontinuous_env_cfg(
   )
   cfg.rewards["right_foot_height_in_air"] = RewardTermCfg(
     func=mdp.single_foot_height_in_air,
-    weight=2.0,
+    weight=1.4,
     params={
       "sensor_name": "feet_ground_contact",
       "height_sensor_name": "foot_height_scan",
       "foot_index": 1,
-      "target_height": 0.18,
+      "target_height": 0.16,
       "command_name": "twist",
       "command_threshold": 0.10,
       "log_prefix": "right_foot",
@@ -831,7 +784,7 @@ def unitree_g1_12dof_easy_discontinuous_env_cfg(
     params={
       "sensor_name": "feet_ground_contact",
       "height_sensor_name": "foot_height_scan",
-      "target_height": 0.18,
+      "target_height": 0.16,
       "command_name": "twist",
       "command_threshold": 0.10,
     },
@@ -1006,9 +959,6 @@ def unitree_g1_12dof_easy_discontinuous_env_cfg(
     obs_group.nan_policy = "sanitize"
 
   if play:
-    assert cfg.scene.terrain is not None
-    cfg.scene.terrain.terrain_generator = _g1_12dof_demo_discontinuous_terrains_cfg()
-    cfg.scene.terrain.max_init_terrain_level = None
     twist_cmd.ranges.lin_vel_x = (0.40, 0.40)
     twist_cmd.ranges.lin_vel_y = (0.0, 0.0)
     twist_cmd.ranges.ang_vel_z = (0.0, 0.0)

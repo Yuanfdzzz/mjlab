@@ -423,3 +423,37 @@ learning rate: 1e-5 到 1.5e-5
 这个项目的核心经验是：感知行走不是把速度奖励放大就能解决的问题。人形机器人会非常善于利用奖励漏洞，用跳、蹬、拖、交叉、侧移等方式完成表面任务。因此最终有效的方案，是把地形课程、足端几何、接触相位、左右对称、直线约束和失败终止统一起来。
 
 目前 12cm 台阶模型已经形成一个较可靠的基线；正在进行的 13.5cm 预备阶段是在这个基线上扩展 clearance 和楼梯能力。后续冲 15cm 时，最重要的是保留当前自然步态，而不是让模型重新学出“能上楼但不像走路”的投机策略。
+
+## 11. 配套图表与截图素材
+
+本报告配套素材位于：
+
+```text
+report_assets/g1_perceptive_walk_20260513/
+```
+
+曲线图：
+
+| 文件 | 说明 |
+| --- | --- |
+| `training_curves.png` | 原始平均回报、回合长度、峰值脚高曲线 |
+| `training_curves_smoothed.png` | 适合报告正文使用的平滑鲁棒曲线 |
+| `training_metrics.csv` | 曲线对应的原始解析数据 |
+
+仿真截图序列：
+
+| 文件 | 说明 |
+| --- | --- |
+| `flat_contact_sheet.png` | 平地交替迈步截图序列 |
+| `mixed_contact_sheet.png` | 随机离散不连续地形行走截图序列 |
+| `upstairs_contact_sheet.png` | 13.5cm 上楼梯截图序列 |
+| `downstairs_contact_sheet.png` | 11.5cm 下楼梯截图序列 |
+
+每组截图的单帧 PNG 存放在同名子目录中，例如：
+
+```text
+report_assets/g1_perceptive_walk_20260513/upstairs/
+report_assets/g1_perceptive_walk_20260513/downstairs/
+```
+
+单帧图左上角标注了仿真时间、左右脚相对地形高度和骨盆高度，可用于说明脚部抬升与身体姿态变化。
